@@ -1,0 +1,25 @@
+# Read-only look at the gaming PC: pending Windows updates and the services the stack depends on.
+#   ansible-playbook playbooks/windows-info.yml
+- name: Gaming PC status
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: Services the server relies on
+      ansible.windows.win_service_info:
+        name: "{{ item }}"
+      loop: [sshd, LanmanServer, vmms]
+      register: svc
+
+    - ansible.builtin.debug:
+        msg: "{{ item.item }}: {{ item.services[0].state if item.services else 'not installed' }}"
+      loop: "{{ svc.results }}"
+      loop_control: { label: "{{ item.item }}" }
+
+    - name: Pending Windows updates (search only, installs nothing)
+      ansible.windows.win_updates:
+        state: searched
+        category_names: ['*']
+      register: wu
+
+    - ansible.builtin.debug:
+        msg: "{{ wu.found_update_count }} update(s) pending: {{ wu.updates.values() | map(attribute='title') | list }}"

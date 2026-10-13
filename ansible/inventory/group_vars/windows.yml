@@ -1,0 +1,9 @@
+# Windows over OpenSSH (not WinRM), with the key already used for remote administration.
+ansible_connection: ssh
+ansible_user: <windows-admin-user>
+ansible_ssh_private_key_file: ~/.ssh/<gaming-pc-key>
+ansible_ssh_common_args: -o IdentitiesOnly=yes
+# Must match the sshd DefaultShell on the PC: unset = cmd.exe.
+ansible_shell_type: cmd
+# No Python on Windows; modules run in PowerShell.
+ansible_python_interpreter: none

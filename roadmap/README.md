@@ -36,7 +36,7 @@ These are design notes for agreed future work that hasn't been built yet. Each o
 
 ## 2. Ansible: make the documentation executable
 
-**Status:** proposed, not started.
+**Status:** proposed. First rung built 2026-10-13: control node, inventory and smoke playbooks for both machines, see [ansible](../ansible/). The rebuild roles are not started.
 
 **Problem.** The server was once rebuilt by hand over several days from written notes. The notes record *what* was done and *why* very well, but a human still has to read them and retype every step, in order, without missing one.
 

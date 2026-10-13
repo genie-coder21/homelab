@@ -1,0 +1,13 @@
+# Smoke test: can Ansible reach everything?
+#   ansible-playbook playbooks/ping.yml
+- name: Ping Linux hosts
+  hosts: linux
+  gather_facts: false
+  tasks:
+    - ansible.builtin.ping:
+
+- name: Ping Windows hosts
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - ansible.windows.win_ping:

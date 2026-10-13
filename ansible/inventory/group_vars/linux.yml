@@ -1,0 +1,2 @@
+ansible_user: <admin-user>
+ansible_become: true           # passwordless sudo on the server

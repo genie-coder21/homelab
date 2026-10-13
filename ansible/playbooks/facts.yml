@@ -1,0 +1,12 @@
+# What is each machine?  OS, uptime, memory, IPs.
+#   ansible-playbook playbooks/facts.yml
+- name: Report on every host
+  hosts: all
+  tasks:
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "{{ inventory_hostname }}: {{ ansible_facts.distribution | default(ansible_facts.os_name | default('?')) }} {{ ansible_facts.distribution_version | default(ansible_facts.os_version | default('')) }}"
+          - "uptime: {{ (ansible_facts.uptime_seconds | default(0) | int // 3600) }} h"
+          - "memory: {{ ansible_facts.memtotal_mb | default('?') }} MB, free {{ ansible_facts.memfree_mb | default('?') }} MB"
+          - "LAN: {{ ansible_facts.all_ipv4_addresses | default(ansible_facts.ip_addresses | default([])) | select('match', '^192\\.0\\.2\\.') | list }}"

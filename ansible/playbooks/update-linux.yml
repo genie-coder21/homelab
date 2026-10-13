@@ -1,0 +1,19 @@
+# Patch the server: apt update + upgrade, and say whether a reboot is pending.
+#   ansible-playbook playbooks/update-linux.yml
+- name: Update Linux hosts
+  hosts: linux
+  tasks:
+    - name: apt update + upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        upgrade: safe
+      register: apt
+
+    - name: Reboot needed?
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_flag
+
+    - ansible.builtin.debug:
+        msg: "upgraded={{ apt.changed }}  reboot_required={{ reboot_flag.stat.exists }}  (reboot by hand - the media server or a backup may be running)"

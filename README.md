@@ -35,6 +35,7 @@ A small self-hosted infrastructure built and run at home: one always-on Ubuntu s
 | [secrets-and-hardening](secrets-and-hardening/) | TPM-bound secrets with systemd-creds, a compose wrapper that injects them, and host hardening conventions |
 | [local-llm](local-llm/) | An Ollama model on the gaming PC's GPU, woken on demand by the server |
 | [windows-power](windows-power/) | Power-plan switching scripts and shortcuts for the gaming PC |
+| [ansible](ansible/) | The server as an Ansible control node for itself and the gaming PC, the Windows side over OpenSSH |
 | [roadmap](roadmap/) | Design notes for planned work: a ZFS rebuild, an Ansible rebuild, a two-node k3s cluster |
 
 ## Conventions

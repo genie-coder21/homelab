@@ -1,0 +1,3 @@
+# History
+
+**2026-10-13: first setup.** Ansible installed from the distro packages on the server. Inventory written for the server (local connection, sudo) and the gaming PC (OpenSSH with the existing admin key, cmd shell type, no Python). Four playbooks: ping, facts, Linux safe-upgrade with a reboot-pending report, and a read-only Windows status playbook that lists the services the server depends on (sshd, SMB for the backup target, Hyper-V for the kids' VMs) and searches for pending Windows updates. All four verified against both machines on the first run; the Windows scan found three pending updates and changed nothing. The one coupling worth remembering was written down: the Windows shell type in the inventory must track the sshd default shell on the PC.
