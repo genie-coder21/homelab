@@ -1,0 +1,59 @@
+#!/bin/bash
+# Off-site copy on GitHub, every 15 minutes:
+#  1. the documentation wiki (plus the AI assistant's notes) is mirrored into a local git
+#     repo, scanned for anything secret-looking, committed and pushed to a PRIVATE repo;
+#  2. a private code project: its committed `main` is pushed when it is ahead of the
+#     remote, after the new lines are scanned against a personal-data pattern list.
+# Any hit refuses the push and fails the unit. Deploy keys (one per repo, write access
+# to that repo only) and the pattern list arrive as systemd credentials.
+set -euo pipefail
+# ---- CONFIG ----
+DOCS_SRC=<DOCS_DIR>/                  # the documentation wiki
+NOTES_SRC=<ASSISTANT_NOTES_DIR>/      # optional extra notes to mirror
+MIRROR=/opt/docs-mirror               # git repo whose origin is the private docs repo
+PROJECT=<PROJECT_REPO_DIR>
+PROJECT_URL=ssh://git@ssh.github.com:443/<GITHUB_OWNER>/<PROJECT_REPO>.git
+export GIT_AUTHOR_NAME="<GIT_NAME>" GIT_AUTHOR_EMAIL="<GIT_EMAIL>"
+export GIT_COMMITTER_NAME="<GIT_NAME>" GIT_COMMITTER_EMAIL="<GIT_EMAIL>"
+# Secret-looking text (written so this file does not match itself).
+SECRET_RE='(gh[ops]_[A-Za-z0-9]{20}|github_pa[t]_|sk-[A-Za-z0-9]{20}|AKI[A][0-9A-Z]{16}|xox[bp]-[0-9]|-----BEGIN [A-Z ]*PRIVAT[E] KEY|PrivateKey *= *[A-Za-z0-9+/]{40})'
+# ----------------
+C=${CREDENTIALS_DIRECTORY:?run me from hl-git-backup.service}
+
+# The credstore drops a key's final newline and OpenSSH then refuses the key
+# ("error in libcrypto"): write private copies with the newline, removed on exit.
+K=$(mktemp -d); chmod 700 "$K"; trap 'rm -rf "$K"' EXIT
+for k in docs-deploy-key project-deploy-key; do
+  (umask 077; { cat "$C/$k"; echo; } > "$K/$k")
+done
+ssh_for() { echo "ssh -i $K/$1 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"; }
+fail() { echo "BLOCKED: $*" >&2; exit 1; }
+
+# --- 1. docs mirror ---------------------------------------------------------------
+mkdir -p "$MIRROR/docs" "$MIRROR/notes"
+rsync -a --delete --exclude '.obsidian/workspace*' --exclude '.trash/' "$DOCS_SRC" "$MIRROR/docs/"
+rsync -a --delete "$NOTES_SRC" "$MIRROR/notes/"
+if hits=$(grep -rIlE "$SECRET_RE" --exclude-dir=.git "$MIRROR"); then
+  fail "secret-looking text in the docs: $(echo "$hits" | head -3 | tr '\n' ' ')"
+fi
+cd "$MIRROR"
+git add -A
+git diff --cached --quiet || git commit -q -m "Docs sync $(date '+%Y-%m-%d %H:%M')"
+# A push error must fail the run - never `|| true` here.
+GIT_SSH_COMMAND="$(ssh_for docs-deploy-key)" git push -q origin main
+echo "docs: $(git log --oneline -1)"
+
+# --- 2. project main --------------------------------------------------------------
+export GIT_SSH_COMMAND="$(ssh_for project-deploy-key)"
+git -C "$PROJECT" fetch -q "$PROJECT_URL" main:refs/remotes/origin/main
+ahead=$(git -C "$PROJECT" rev-list --count origin/main..main)
+if [ "$ahead" -gt 0 ]; then
+  if git -C "$PROJECT" diff origin/main..main | grep '^+' | grep -iEf "$C/personal.patterns" >/dev/null; then
+    fail "personal data in unpushed commits; not pushed"
+  fi
+  git -C "$PROJECT" push -q "$PROJECT_URL" main:main
+  git -C "$PROJECT" fetch -q "$PROJECT_URL" main:refs/remotes/origin/main
+  echo "project: pushed $ahead commit(s)"
+else
+  echo "project: up to date"
+fi

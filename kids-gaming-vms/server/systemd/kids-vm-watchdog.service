@@ -1,0 +1,22 @@
+[Unit]
+Description=Save idle kids' VMs and release the gaming-pc's keepawake
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Must be the same user as the launcher: only that user holds the SSH key to the
+# gaming-pc. Testing the watchdog under sudo reports "Unreachable" - a fake fault.
+User=<SERVICE_USER>
+Group=<SERVICE_USER>
+Environment=IDLE_MINUTES=30
+# Start with 1 (log only). Go live together with the launcher: a live launcher with a
+# dry-run watchdog starts VMs that nothing ever saves.
+Environment=WATCHDOG_DRY_RUN=0
+# vmctl defaults to STUB; this makes it talk to the real Hyper-V host.
+Environment=KIDS_VM_STUB=0
+Environment=KIDS_VM_SSH_HOST=gaming-pc
+Environment=KIDS_VM_HOST_IP=<GAMING_PC_IP>
+Environment=KIDS_VM_HOST_MAC=<GAMING_PC_MAC>
+Environment=KIDS_VM_BROADCAST=<LAN_BROADCAST>
+Environment=KIDS_VM_CRED_DIR=<GUEST_CRED_DIR>
+ExecStart=/usr/local/sbin/kids-vm-watchdog

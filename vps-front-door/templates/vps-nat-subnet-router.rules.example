@@ -1,0 +1,11 @@
+# VPS: /etc/iptables/rules.v4 excerpt (nat table).
+# Tailnet clients (Tailscale CGNAT range) going into the tunnel are rewritten to a dedicated
+# address, so home can route replies AND tell them apart from the VPS itself.
+# Tailscale's own subnet-route SNAT must be disabled, or it rewrites first.
+*nat
+-A POSTROUTING -s <TAILNET_CGNAT_RANGE> -o <TUNNEL_IFACE> -j SNAT --to-source <TAILNET_SNAT_ADDR>
+COMMIT
+
+# Also on the VPS: net.ipv4.ip_forward=1, FORWARD accepts between tailscale0 and the
+# tunnel interface, and filter-table allows for web + tunnel ports placed ABOVE the
+# cloud image's default REJECT rule.

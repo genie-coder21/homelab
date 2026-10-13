@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""hl-watchdog - checks what the apps can't report themselves, every 5 minutes.
+
+Each check returns (ok, detail). State is kept per check, so you hear about a problem
+ONCE when it starts (after `confirm` consecutive failures, to ignore blips), get a
+reminder every REMIND hours while it lasts, and a "Recovered" message when it clears.
+A check that throws is recorded and skipped; it never stops the other checks.
+
+Dry run (prints, sends nothing, saves no state): set DRYRUN=1 in the environment.
+Runs as root from hl-watchdog.timer; sends through hl-notify.
+"""
+from __future__ import annotations
+
+import json
+import os
+import socket
+import ssl
+import subprocess
+import time
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+# ============================ site config (placeholders) ============================
+STATE_FILE = Path("/var/lib/hl-watchdog/state.json")
+NOTIFY = "/usr/local/bin/hl-notify"
+TOPIC_ALERTS, TOPIC_SECURITY = "lab-alerts", "lab-security"
+REMIND = timedelta(hours=6)
+
+DATA_MOUNT = "<DATA_MOUNT>"                    # e.g. /mnt/data - the big data disk
+DATA_DISK_DEV = "<DATA_DISK_DEV>"              # kernel name of that disk, e.g. sda
+SYSTEM_SSD = "<SYSTEM_SSD_DEV>"                # e.g. /dev/nvme0n1
+DISK_FULL = 0.90
+IGNORE_CONTAINERS: set[str] = set()            # containers stopped on purpose
+WG_IFACE = "<WG_IFACE>"                        # WireGuard interface to the VPS
+WG_MAX_AGE = 180                               # seconds since last handshake
+ALWAYS_ON_UNITS = ["wg-quick@<WG_IFACE>.service"]
+PUBLIC_URLS = {                                # fronted web services, checked through the VPS
+    "service-a": "https://<PUBLIC_HOST_A>/health",
+    "service-b": "https://<PUBLIC_HOST_B>/health",
+}
+CERT_HOSTS = ["<PUBLIC_HOST_A>", "<PUBLIC_HOST_B>"]
+CERT_WARN = timedelta(days=14)
+PROBE_HOSTS = ("1.1.1.1", "8.8.8.8", "9.9.9.9")  # public anycast resolvers, probed on :443
+BACKUP_STATUS = Path("/var/lib/hl-backup/status.json")
+BACKUP_UNIT = "hl-backup.service"
+BACKUP_MAX_AGE = timedelta(hours=30)
+CROWDSEC_CONTAINER = "crowdsec"
+BOUNCER_NAME = "<VPS_BOUNCER_NAME>"
+BOUNCER_MAX_AGE = timedelta(minutes=15)
+# ====================================================================================
+
+NOW = datetime.now(timezone.utc)
+
+
+def sh(*cmd: str, timeout: int = 30) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(cmd, 124, "", "timeout")
+
+
+def http(url: str, timeout: int = 15) -> int:
+    with urllib.request.urlopen(urllib.request.Request(url), timeout=timeout) as r:
+        return r.status
+
+
+def notify(topic: str, prio: int, title: str, msg: str, tags: str = "") -> None:
+    if os.environ.get("DRYRUN"):
+        print(f"[{topic} p{prio}] {title}: {msg}")
+        return
+    sh(NOTIFY, topic, str(prio), title, msg, tags)
+
+
+def backup_running() -> bool:
+    # The backup stops containers on purpose; container checks stand down while it runs.
+    return sh("systemctl", "is-active", "--quiet", BACKUP_UNIT).returncode == 0
+
+
+# ------------------------------------------------------------------ checks
+def chk_mount():
+    return os.path.ismount(DATA_MOUNT), f"{DATA_MOUNT} is NOT mounted on the host"
+
+
+def chk_container_mounts():
+    """Docker started before the data disk mounted, so containers bound the EMPTY
+    directory underneath. The host sees files; the container sees nothing."""
+    if backup_running():
+        return True, ""
+    blind = []
+    for n in sh("docker", "ps", "--format", "{{.Names}}").stdout.split():
+        mounts = json.loads(sh("docker", "inspect", "-f", "{{json .Mounts}}", n).stdout or "[]")
+        for m in mounts:
+            if not m.get("Source", "").startswith(DATA_MOUNT):
+                continue
+            host_has = any(os.scandir(m["Source"])) if os.path.isdir(m["Source"]) else False
+            if not host_has:
+                continue
+            r = sh("docker", "exec", n, "ls", "-A", m["Destination"], timeout=20)
+            if r.returncode == 0 and not r.stdout.strip():
+                blind.append(f"{n}: {m['Destination']}")
+            break
+    return (not blind), ("Containers see an EMPTY data folder (started before the disk mounted). "
+                         "Restart Docker once the disk is up.\n" + "\n".join(blind))
+
+
+def chk_containers():
+    if backup_running():
+        return True, ""
+    bad = []
+    for line in sh("docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}").stdout.splitlines():
+        name, state, status = line.split("\t")
+        if name in IGNORE_CONTAINERS:
+            continue
+        if state != "running" or "unhealthy" in status:
+            bad.append(f"{name}: {status}")
+    return (not bad), "\n".join(bad)
+
+
+def chk_disk():
+    bad = []
+    for path in ("/", DATA_MOUNT):
+        try:
+            st = os.statvfs(path)
+        except OSError:
+            continue
+        used = 1 - st.f_bavail / st.f_blocks
+        if used >= DISK_FULL:
+            bad.append(f"{path} is {used:.0%} full ({st.f_bavail * st.f_frsize / 1e12:.2f} TB free)")
+    return (not bad), "\n".join(bad)
+
+
+def chk_tunnel():
+    out = sh("wg", "show", WG_IFACE, "latest-handshakes").stdout.split()
+    if len(out) < 2:
+        return False, f"{WG_IFACE} (tunnel to the VPS) is down"
+    age = time.time() - int(out[1])
+    return age < WG_MAX_AGE, f"No WireGuard handshake with the VPS for {int(age // 60)} min"
+
+
+def chk_public():
+    bad = []
+    for name, url in PUBLIC_URLS.items():
+        try:
+            code = http(url, timeout=20)
+            if code != 200:
+                bad.append(f"{name}: HTTP {code}")
+        except Exception as e:  # noqa: BLE001
+            bad.append(f"{name}: {str(e)[:80]}")
+    return (not bad), "\n".join(bad)
+
+
+def chk_internet():
+    # Probe TCP 443, not 53: an outbound filter that refuses DNS-over-TCP makes a
+    # port-53 probe "fail" forever while the internet is fine.
+    for host in PROBE_HOSTS:
+        try:
+            socket.create_connection((host, 443), timeout=5).close()
+            return True, ""
+        except OSError:
+            continue
+    return False, "No internet from the server (all probe hosts unreachable on :443)"
+
+
+def chk_failed_units():
+    units = [l.split()[0] for l in sh("systemctl", "--failed", "--no-legend", "--plain").stdout.splitlines() if l.strip()]
+    return (not units), "Failed systemd units:\n" + "\n".join(units)
+
+
+def chk_services():
+    down = [u for u in ALWAYS_ON_UNITS if sh("systemctl", "is-active", "--quiet", u).returncode != 0]
+    return (not down), "Not running: " + ", ".join(down)
+
+
+def chk_backup_fresh():
+    """Catches 'the timer never ran' - the backup job reports its own failures."""
+    try:
+        st = json.loads(BACKUP_STATUS.read_text())
+        fin = datetime.fromisoformat(st["finished"])
+    except Exception:  # noqa: BLE001
+        return False, f"Can't read {BACKUP_STATUS}"
+    if st.get("result") != "ok":
+        return True, ""
+    age = NOW - fin
+    return age < BACKUP_MAX_AGE, f"Last successful backup was {age.days}d {age.seconds // 3600}h ago (expected nightly)"
+
+
+def chk_bouncer():
+    """The VPS firewall bouncer must keep pulling ban decisions from the home CrowdSec API."""
+    try:
+        rows = json.loads(sh("docker", "exec", CROWDSEC_CONTAINER, "cscli", "bouncers", "list", "-o", "json").stdout)
+    except Exception:  # noqa: BLE001
+        return False, "Can't list CrowdSec bouncers (is the container up?)"
+    for b in rows:
+        if b.get("name") == BOUNCER_NAME:
+            last = b.get("last_pull") or ""
+            try:
+                age = NOW - datetime.fromisoformat(last.replace("Z", "+00:00"))
+            except ValueError:
+                return False, f"Bouncer last_pull unreadable: {last}"
+            return age < BOUNCER_MAX_AGE, f"VPS firewall bouncer hasn't pulled decisions for {int(age.total_seconds() // 60)} min"
+    return False, "VPS firewall bouncer is not registered"
+
+
+def chk_data_disk_kernel():
+    """The data disk sits in a USB enclosure that does not pass SMART through, so kernel
+    I/O errors and resets are the only health signal available for it."""
+    out = sh("journalctl", "-k", "--since", "-6min", "--no-pager", "-q").stdout
+    keys = ("I/O error", "reset", "offline", "Medium Error")
+    hits = [l for l in out.splitlines() if DATA_DISK_DEV in l and any(k in l for k in keys)]
+    return (not hits), "Kernel reports problems on the data disk:\n" + "\n".join(h[-160:] for h in hits[-5:])
+
+
+def chk_certs():
+    bad = []
+    for host in CERT_HOSTS:
+        try:
+            ctx = ssl.create_default_context()
+            with socket.create_connection((host, 443), timeout=10) as s, ctx.wrap_socket(s, server_hostname=host) as t:
+                exp = datetime.strptime(t.getpeercert()["notAfter"], "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
+            if exp - NOW < CERT_WARN:
+                bad.append(f"{host} certificate expires in {(exp - NOW).days} days")
+        except Exception as e:  # noqa: BLE001
+            bad.append(f"{host}: {str(e)[:80]}")
+    return (not bad), "\n".join(bad)
+
+
+def chk_ssd_smart():
+    r = sh("smartctl", "-H", SYSTEM_SSD)
+    return ("PASSED" in r.stdout), "System SSD SMART health is NOT 'PASSED':\n" + r.stdout[-300:]
+
+
+CHECKS = {
+    #  name           fn                     topic           prio confirm tags                  every(s)
+    "mount":            (chk_mount,            TOPIC_ALERTS,   5, 1, "rotating_light",       0),
+    "container-mounts": (chk_container_mounts, TOPIC_ALERTS,   5, 1, "rotating_light",       0),
+    "containers":       (chk_containers,       TOPIC_ALERTS,   4, 2, "whale",                0),
+    "disk":             (chk_disk,             TOPIC_ALERTS,   4, 1, "floppy_disk",          0),
+    "tunnel":           (chk_tunnel,           TOPIC_ALERTS,   4, 2, "electric_plug",        0),
+    "public":           (chk_public,           TOPIC_ALERTS,   4, 3, "globe_with_meridians", 0),
+    "internet":         (chk_internet,         TOPIC_ALERTS,   4, 2, "satellite",            0),
+    "failed-units":     (chk_failed_units,     TOPIC_ALERTS,   3, 1, "gear",                 0),
+    "services":         (chk_services,         TOPIC_ALERTS,   4, 2, "gear",                 0),
+    "backup-fresh":     (chk_backup_fresh,     TOPIC_ALERTS,   4, 1, "floppy_disk",          0),
+    "bouncer":          (chk_bouncer,          TOPIC_SECURITY, 4, 2, "shield",               0),
+    "data-disk":        (chk_data_disk_kernel, TOPIC_ALERTS,   5, 1, "rotating_light",       0),
+    "certs":            (chk_certs,            TOPIC_ALERTS,   4, 1, "lock",             86400),
+    "ssd-smart":        (chk_ssd_smart,        TOPIC_ALERTS,   5, 1, "rotating_light",   86400),
+}
+
+
+def main() -> None:
+    state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
+    checks = state.setdefault("checks", {})
+    for name, (fn, topic, prio, confirm, tags, every) in CHECKS.items():
+        c = checks.setdefault(name, {"fails": 0, "alerted": None, "last_run": None})
+        if every and c["last_run"] and (NOW - datetime.fromisoformat(c["last_run"])).total_seconds() < every:
+            continue
+        c["last_run"] = NOW.isoformat()
+        try:
+            ok, detail = fn()
+        except Exception as e:  # noqa: BLE001 - a broken check must not kill the others
+            ok, detail = True, ""
+            c["error"] = str(e)[:200]
+        if ok:
+            if c["alerted"]:
+                notify(topic, 3, f"Recovered: {name}", "Back to normal.", "white_check_mark")
+            c.update(fails=0, alerted=None)
+            continue
+        c["fails"] += 1
+        if c["fails"] < confirm:
+            continue
+        if not c["alerted"] or NOW - datetime.fromisoformat(c["alerted"]) > REMIND:
+            notify(topic, prio, ("Still broken: " if c["alerted"] else "Problem: ") + name, detail[:1000], tags)
+            c["alerted"] = NOW.isoformat()
+    if os.environ.get("DRYRUN"):
+        print(json.dumps({k: v for k, v in checks.items() if v.get("fails") or v.get("error")}, indent=1))
+        return
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = STATE_FILE.with_suffix(".tmp")          # atomic write: a crash never leaves half a state file
+    tmp.write_text(json.dumps(state, indent=1))
+    tmp.replace(STATE_FILE)
+
+
+if __name__ == "__main__":
+    main()

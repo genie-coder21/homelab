@@ -1,0 +1,10 @@
+[Unit]
+Description=Retry the A1 instance launch every ~5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

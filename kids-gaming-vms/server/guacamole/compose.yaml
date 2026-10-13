@@ -1,0 +1,81 @@
+# Guacamole: web app + guacd protocol engine + Postgres.
+# Secrets are NOT in this file. They are injected as environment variables by a small
+# wrapper that decrypts systemd-creds (TPM-bound) credentials at `up` time; the
+# ${VAR:?...} guards make compose refuse to start if the wrapper was bypassed.
+#
+# initdb/01-schema.sql is generated with the initdb.sh script bundled in the
+# guacamole image (PostgreSQL mode).
+# (not included here; generate it from the image version you deploy).
+services:
+  guac-db:
+    image: postgres:16-alpine
+    container_name: guac-db
+    restart: unless-stopped
+    networks: [guac]
+    environment:
+      - "POSTGRES_DB=guacamole_db"
+      - "POSTGRES_USER=guacamole_user"
+      - "POSTGRES_PASSWORD=${GUAC_DB_PASSWORD:?start via the secrets wrapper}"
+      # Pin encoding/locale so a future Postgres image cannot quietly change ordering
+      # behaviour underneath the app.
+      - "POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C"
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+      # Runs ONLY on an empty data dir. Wiping ./data/db re-initialises from scratch
+      # and loses every user and connection configured in the UI.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guacamole_user -d guacamole_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+
+  guacd:
+    image: guacamole/guacd:latest
+    container_name: guacd
+    restart: unless-stopped
+    networks: [guac]
+    # guacd is the protocol engine - it makes the outbound VNC connections to the VMs.
+    # Deliberately NOT published: only the web app should ever talk to it.
+    environment:
+      - "GUACD_LOG_LEVEL=info"
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+
+  guacamole:
+    image: guacamole/guacamole:latest
+    container_name: guacamole
+    restart: unless-stopped
+    networks: [guac]
+    depends_on:
+      guac-db: { condition: service_healthy }
+      guacd: { condition: service_started }
+    ports:
+      # LAN only. Publish on a port of your choice.
+      - "${GUAC_PORT:?set GUAC_PORT}:8080"
+    environment:
+      - "GUACD_HOSTNAME=guacd"
+      - "GUACD_PORT=4822"
+      - "POSTGRESQL_HOSTNAME=guac-db"
+      - "POSTGRESQL_PORT=5432"
+      - "POSTGRESQL_DATABASE=guacamole_db"
+      - "POSTGRESQL_USER=guacamole_user"
+      - "POSTGRESQL_PASSWORD=${GUAC_DB_PASSWORD:?start via the secrets wrapper}"
+      # Serve at the web root rather than /guacamole.
+      - "WEBAPP_CONTEXT=ROOT"
+      # Enables the guacamole-auth-json extension (shipped in the image, activated by
+      # this variable). The launcher signs and encrypts a one-connection descriptor
+      # with this key and posts it to /api/tokens, so a kid lands straight on their
+      # desktop and never sees a login page. The VNC credential travels inside that
+      # encrypted blob, server to server - it never reaches the browser.
+      - "JSON_SECRET_KEY=${GUAC_JSON_SECRET_KEY:?start via the secrets wrapper}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+
+networks:
+  guac: {}

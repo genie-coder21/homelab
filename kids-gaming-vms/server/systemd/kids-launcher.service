@@ -1,0 +1,50 @@
+[Unit]
+Description=Kids' VM launcher - starts a VM on demand and hands off to Guacamole
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs as an unprivileged user, not root: it needs that user's SSH key to the
+# gaming-pc and nothing that requires privilege.
+User=<SERVICE_USER>
+Group=<SERVICE_USER>
+WorkingDirectory=/opt/kids-launcher
+
+# ---- site config ------------------------------------------------------------
+Environment=LAUNCHER_PORT=<LAUNCHER_PORT>
+Environment=GUAC_URL=http://<SERVER_IP>:<GUAC_PORT>
+Environment=KIDS_FILE=/opt/kids-launcher/kids.json
+Environment=KIDS_VM_SSH_HOST=gaming-pc
+Environment=KIDS_VM_HOST_IP=<GAMING_PC_IP>
+Environment=KIDS_VM_HOST_MAC=<GAMING_PC_MAC>
+Environment=KIDS_VM_BROADCAST=<LAN_BROADCAST>
+Environment=KIDS_VM_CRED_DIR=<GUEST_CRED_DIR>
+# 0 = talk to the real Hyper-V host. vmctl defaults to STUB (1) so nothing can touch
+# real VMs by accident; forgetting this line makes the service drive the simulator.
+Environment=KIDS_VM_STUB=0
+# Poll every 1 s while waiting for the gaming-pc - a 2 s interval meant detecting the
+# wake up to 2 s late, which is pure latency for a child staring at a screen.
+Environment=POLL_HOST=1
+
+# Secrets: systemd-creds encrypted (TPM-bound), decrypted into a tmpfs only this
+# service can read. The launcher needs the VNC password (embedded in the encrypted
+# Guacamole blob) and the JSON signing key. No sudo, no helper binary.
+LoadCredentialEncrypted=kids-vncpass:/etc/credstore.encrypted/<VNC_PASS_CRED>
+LoadCredentialEncrypted=guac-jsonkey:/etc/credstore.encrypted/<GUAC_JSON_KEY_CRED>
+ExecStart=/usr/bin/python3 -u /opt/kids-launcher/launcher.py
+Restart=always
+RestartSec=10
+
+# It only ever reads its config, writes its own state dir and talks over the network.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/kids-launcher
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,35 @@
+#!/bin/bash
+# hl-notify - send one notification to the self-hosted ntfy server.
+#   hl-notify <topic> <priority 1-5> <title> <message> [tags] [click-url]
+# Never fails its caller: always exits 0 and logs drops to the journal, so a dead
+# notification server can never break a backup or any other job that calls it.
+#
+# ---- site config (placeholders) ------------------------------------------
+NTFY_URL="${NTFY_URL:-http://127.0.0.1:<NTFY_PORT>}"
+TOKEN_CRED="${NTFY_TOKEN_CRED:-<NTFY_TOKEN_CRED>}"   # name of the send-only token in the secret store
+# ---------------------------------------------------------------------------
+topic=$1 prio=${2:-3} title=$3 msg=$4 tags=${5:-} click=${6:-}
+
+# Token source: a systemd credential if the caller is a unit with LoadCredentialEncrypted=,
+# otherwise decrypt it from the TPM-bound store (root only).
+if [ -n "${CREDENTIALS_DIRECTORY:-}" ] && [ -r "$CREDENTIALS_DIRECTORY/$TOKEN_CRED" ]; then
+  tok=$(<"$CREDENTIALS_DIRECTORY/$TOKEN_CRED")
+else
+  tok=$(hl-secret get "$TOKEN_CRED" 2>/dev/null)
+fi
+[ -n "$tok" ] || { logger -t hl-notify "no token; dropped: $title"; exit 0; }
+
+# Publish as JSON: HTTP header values are ASCII-only, so a title with an em dash or emoji
+# sent as a "Title:" header breaks the request. JSON bodies are UTF-8 safe.
+body=$(TOPIC="$topic" PRIO="$prio" TITLE="$title" MSG="$msg" TAGS="$tags" CLICK="$click" python3 -c '
+import json, os
+d = {"topic": os.environ["TOPIC"], "priority": int(os.environ["PRIO"] or 3),
+     "title": os.environ["TITLE"], "message": os.environ["MSG"]}
+if os.environ["TAGS"]:  d["tags"] = [t for t in os.environ["TAGS"].split(",") if t]
+if os.environ["CLICK"]: d["click"] = os.environ["CLICK"]
+print(json.dumps(d))')
+
+curl -s -m 15 -o /dev/null -H "Authorization: Bearer $tok" \
+  -H "Content-Type: application/json" --data-binary "$body" "$NTFY_URL/" \
+  || logger -t hl-notify "ntfy unreachable; dropped: $title"
+exit 0

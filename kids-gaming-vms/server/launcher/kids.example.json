@@ -1,0 +1,7 @@
+{
+  "_comment": "Get-VM name -> what the kid sees on the launcher page, the guest's static LAN IP, and its VNC port. Read on every request, so edits need no restart. Leave ip blank to ask Hyper-V (Get-VMNetworkAdapter) at launch time instead.",
+  "vms": {
+    "<VM_NAME_KID1>": { "label": "kid1", "ip": "<KID1_VM_IP>", "vnc_port": 5900 },
+    "<VM_NAME_KID2>": { "label": "kid2", "ip": "",              "vnc_port": 5900 }
+  }
+}

@@ -1,0 +1,29 @@
+[Unit]
+Description=Backups browsable as ordinary folders at /mnt/backup-browse
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+LoadCredentialEncrypted=smbcred:/etc/credstore.encrypted/<SMB_CRED_NAME>
+LoadCredentialEncrypted=resticpw:/etc/credstore.encrypted/<RESTIC_CRED_NAME>
+Environment=RESTIC_CACHE_DIR=/var/cache/restic
+Environment=HOME=/root
+Environment=SHARE=//<BACKUP_HOST_IP>/<SHARE_NAME>
+Environment=REPO=/mnt/backup-target/<VAULT_DIR>/server
+ExecStart=/bin/bash -c '\
+  mountpoint -q /mnt/backup-target || \
+    mount -t cifs "$SHARE" /mnt/backup-target \
+      -o credentials=$CREDENTIALS_DIRECTORY/smbcred,uid=0,gid=0,file_mode=0600,dir_mode=0700,vers=3.1.1,nounix,noserverino ; \
+  export RESTIC_REPOSITORY="$REPO" ; \
+  export RESTIC_PASSWORD_FILE=$CREDENTIALS_DIRECTORY/resticpw ; \
+  exec restic mount /mnt/backup-browse'
+ExecStop=/bin/bash -c 'fusermount3 -u /mnt/backup-browse 2>/dev/null || umount -l /mnt/backup-browse 2>/dev/null; true'
+# The target sleeps, so the share can vanish underneath us. Restart rather than
+# sit there dead, but back off so a sleeping PC does not cause a restart storm.
+Restart=always
+RestartSec=60
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

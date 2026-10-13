@@ -1,0 +1,9 @@
+[Unit]
+Description=Wake the gaming-pc when a client asks for the local model
+
+[Path]
+PathExists=/var/lib/hl-llm-wake/request
+Unit=hl-llm-wake.service
+
+[Install]
+WantedBy=multi-user.target

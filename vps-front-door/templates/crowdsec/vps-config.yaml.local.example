@@ -1,0 +1,4 @@
+# /etc/crowdsec/config.yaml.local on the VPS: agent only, report to the home API.
+api:
+  server:
+    enable: false

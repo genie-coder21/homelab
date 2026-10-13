@@ -1,0 +1,12 @@
+[Unit]
+Description=Ensure containers are running (safety net after a crash during backup)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hl-containers-start
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target

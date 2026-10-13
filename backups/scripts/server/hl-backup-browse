@@ -1,0 +1,13 @@
+#!/bin/bash
+# Browse the backups as ordinary folders (each snapshot is a dated directory).
+# With "stop", unmount again - an open browse mount holds a repository lock that
+# blocks pruning, so never leave a hand-started one running.
+M=/mnt/backup-browse
+TARGET=/mnt/backup-target
+if [ "${1:-}" = stop ]; then
+  fusermount3 -u $M 2>/dev/null || umount $M 2>/dev/null
+  mountpoint -q $TARGET && umount $TARGET
+  echo "unmounted"; exit 0
+fi
+echo "Mounting backups at $M ... (leave this running; Ctrl+C to stop)"
+exec /usr/local/sbin/hl-restic mount $M

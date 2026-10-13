@@ -1,0 +1,20 @@
+#!/bin/bash
+# Safety net: make sure every stack under /opt is running (after a crash mid-backup,
+# or at boot). Uses compose's project LABEL rather than `docker compose start`, because
+# a compose.yaml with ${VAR:?...} secret guards cannot be parsed without its secrets.
+# ---- CONFIG ----
+STACK_ROOT=/opt
+NEVER_START=""          # space-separated stack names that are deliberately kept stopped
+# ----------------
+started=0
+for d in "$STACK_ROOT"/*/compose.yaml; do
+  name=$(basename "$(dirname "$d")")
+  case " $NEVER_START " in *" $name "*) continue ;; esac
+  ids=$(docker ps -aq --filter "label=com.docker.compose.project=$name" \
+                      --filter "status=exited" --filter "status=created")
+  if [ -n "$ids" ]; then
+    # shellcheck disable=SC2086
+    docker start $ids >/dev/null 2>&1 && started=$((started + $(echo "$ids" | wc -w)))
+  fi
+done
+echo "all stacks started - $started container(s) needed starting"

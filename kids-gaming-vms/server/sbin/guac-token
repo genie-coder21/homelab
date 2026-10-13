@@ -1,0 +1,22 @@
+#!/bin/bash
+# Build an encrypted guacamole-auth-json blob on stdout from a JSON descriptor on stdin.
+# Standalone/debug helper; the launcher does the same thing in-process.
+#
+# Format (mirrors the extension's own encrypt-json.sh):
+#   HMAC-SHA256(json, hexkey) || json   ->  AES-128-CBC, null IV, no salt  ->  base64
+#
+# The key is a systemd-creds encrypted credential (TPM-bound) and is only ever
+# decrypted into the transient unit's private credentials directory. Needs root.
+set -euo pipefail
+CRED_NAME=${GUAC_JSON_CRED:-<GUAC_JSON_KEY_CRED>}            # credential name in the credstore
+CRED_PATH=${GUAC_JSON_CRED_PATH:-/etc/credstore.encrypted/$CRED_NAME}
+
+exec systemd-run --pipe --quiet --collect --unit="guac-token-$$" \
+  --property=LoadCredentialEncrypted=guac-jsonkey:"$CRED_PATH" \
+  /bin/bash -c '
+    KEY=$(tr -d "\n" < "$CREDENTIALS_DIRECTORY/guac-jsonkey")
+    TMP=$(mktemp); trap "rm -f $TMP" EXIT
+    cat > "$TMP"
+    { openssl dgst -sha256 -mac HMAC -macopt hexkey:"$KEY" -binary "$TMP"; cat "$TMP"; } \
+      | openssl enc -aes-128-cbc -K "$KEY" -iv 00000000000000000000000000000000 -nosalt -a -A
+  '

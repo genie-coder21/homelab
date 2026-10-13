@@ -1,0 +1,31 @@
+#!/bin/bash
+# hl-llm-wake - make sure the gaming-pc (and its local model API) is up before a batch of LLM work.
+# Triggered by hl-llm-wake.path when a client drops REQUEST_FILE.
+# Wake-on-LAN if asleep, wait for the Ollama API, then ask the PC to hold itself awake.
+# It never turns the keep-awake OFF: the PC-side holder releases itself after a quiet period,
+# and switching it off here could pull the rug from under someone else using the PC.
+set -u
+# ---- site config (placeholders) ------------------------------------------
+PC_MAC="<GAMING_PC_MAC>"
+PC_BROADCAST="<LAN_BROADCAST_ADDR>"
+API="http://<GAMING_PC_IP>:11434/api/version"
+WAIT_SECS=150
+KEEPAWAKE_CMD="${KEEPAWAKE_CMD:-}"    # optional: command that asks the PC to stay awake (e.g. over SSH)
+# ---------------------------------------------------------------------------
+log() { echo "hl-llm-wake: $*"; }
+api_up() { curl -s -m 3 -o /dev/null -f "$API"; }
+
+if api_up; then
+  log "model API already reachable"
+else
+  log "gaming-pc asleep or API down - sending wake-on-LAN"
+  wakeonlan -i "$PC_BROADCAST" "$PC_MAC" >/dev/null
+  for _ in $(seq 1 $((WAIT_SECS / 3))); do
+    api_up && break
+    sleep 3
+  done
+  api_up || { log "model API not up within ${WAIT_SECS}s"; exit 1; }
+  log "model API up"
+fi
+[ -n "$KEEPAWAKE_CMD" ] && exec $KEEPAWAKE_CMD
+exit 0

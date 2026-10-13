@@ -1,0 +1,10 @@
+[Unit]
+Description=Wake the gaming-pc and hold it awake for local-model work
+
+[Service]
+Type=oneshot
+User=<SERVICE_USER>
+# Consume the request first, so a failed wake doesn't retrigger in a tight loop.
+ExecStartPre=/bin/rm -f /var/lib/hl-llm-wake/request
+ExecStart=/usr/local/sbin/hl-llm-wake
+TimeoutStartSec=240

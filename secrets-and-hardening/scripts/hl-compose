@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""Run docker compose for a stack, filling in secrets from the TPM store.
+
+  hl-compose <stack> <compose args...>
+
+If STACKS/<stack>/.env.template exists, every '@secret:NAME' placeholder is replaced
+with the decrypted value and written to STACKS/<stack>/.env (mode 0600) just long
+enough for compose to read it, then shredded - even if compose fails.
+
+After any build it also trims Docker's build cache back to KEEP_BUILD_CACHE.
+"""
+from __future__ import annotations
+import os, re, subprocess, sys
+from pathlib import Path
+
+# ---- site config ----------------------------------------------------------
+STACKS = Path("/opt")
+SECRET_TOOL = "/usr/local/sbin/hl-secret"
+KEEP_BUILD_CACHE = "30GB"
+# ---------------------------------------------------------------------------
+
+
+def trim_build_cache() -> None:
+    """Never fails the build; a daily timer is the backstop."""
+    try:
+        r = subprocess.run(["docker", "builder", "prune", "--keep-storage", KEEP_BUILD_CACHE, "-f"],
+                           capture_output=True, text=True, timeout=600)
+        freed = (r.stdout.strip().splitlines() or ["Total: 0B"])[-1]
+        print(f"hl-compose: build cache trimmed to {KEEP_BUILD_CACHE} ({freed.lower()} freed)")
+    except Exception as e:  # noqa: BLE001
+        print(f"hl-compose: build-cache trim skipped ({e})", file=sys.stderr)
+
+
+def main() -> int:
+    if os.geteuid() != 0:
+        sys.exit("hl-compose must run as root (it decrypts secrets)")
+    if len(sys.argv) < 3:
+        sys.exit(__doc__)
+    stack, args = sys.argv[1], sys.argv[2:]
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", stack):
+        sys.exit("bad stack name")
+    d = STACKS / stack
+    if not (d / "compose.yaml").exists():
+        sys.exit(f"no stack at {d}")
+    tmpl, env = d / ".env.template", d / ".env"
+    made = False
+    try:
+        if tmpl.exists():
+            text = tmpl.read_text()
+            for name in set(re.findall(r"@secret:([A-Za-z0-9._-]+)", text)):
+                val = subprocess.run([SECRET_TOOL, "get", name], capture_output=True, text=True)
+                if val.returncode:
+                    sys.exit(f"missing secret '{name}' - add it to the store first")
+                text = text.replace(f"@secret:{name}", val.stdout.strip())
+            old = os.umask(0o077)                   # file is born 0600, never briefly world-readable
+            try:
+                env.write_text(text)
+            finally:
+                os.umask(old)
+            made = True
+        rc = subprocess.run(["docker", "compose", *args], cwd=d).returncode
+        if "build" in args or "--build" in args:
+            trim_build_cache()
+        return rc
+    finally:
+        if made and env.exists():
+            subprocess.run(["shred", "-u", str(env)])
+
+
+if __name__ == "__main__":   # the first version lacked this line and silently did nothing
+    raise SystemExit(main())

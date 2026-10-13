@@ -1,0 +1,6 @@
+# /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml on the VPS (excerpt).
+mode: nftables
+api_url: http://<HOME_TUNNEL_ADDR>:<LAPI_PORT>/
+api_key: <BOUNCER_API_KEY>
+update_frequency: 10s
+deny_action: DROP

@@ -1,0 +1,27 @@
+# Appended to /etc/ufw/after.rules (before the final COMMIT of the *filter table).
+# Docker publishes container ports around UFW; this applies the same policy to them.
+# NOTE: no trailing "# comments" on rule lines; iptables-restore rejects them.
+#
+# Use --ctorigdstport: by the time DOCKER-USER sees a packet, DNAT has already
+# rewritten the destination port to the container's internal port.
+
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+-A DOCKER-USER -s <LAN_SUBNET> -j RETURN
+-A DOCKER-USER -s <DOCKER_NETWORKS> -j RETURN
+# The VPS itself: only the fronted services and the CrowdSec API
+-A DOCKER-USER -i <TUNNEL_IFACE> -s <VPS_TUNNEL_ADDR> -p tcp -m conntrack --ctorigdstport <APP_PORT_1> -j RETURN
+-A DOCKER-USER -i <TUNNEL_IFACE> -s <VPS_TUNNEL_ADDR> -p tcp -m conntrack --ctorigdstport <APP_PORT_2> -j RETURN
+-A DOCKER-USER -i <TUNNEL_IFACE> -s <VPS_TUNNEL_ADDR> -p tcp -m conntrack --ctorigdstport <LAPI_PORT> -j RETURN
+# Tailnet devices, SNATed by the VPS to a dedicated tunnel address
+-A DOCKER-USER -i <TUNNEL_IFACE> -s <TAILNET_SNAT_ADDR> -j RETURN
+# Everything else arriving from outside
+-A DOCKER-USER -i <TUNNEL_IFACE> -j DROP
+-A DOCKER-USER -i <WAN_IFACE> -j DROP
+-A DOCKER-USER -j RETURN
+
+# Matching UFW host rules (applied with ufw itself) follow the same shape:
+#   allow everything from <LAN_SUBNET> and from <DOCKER_NETWORKS>
+#   allow tcp <APP_PORT_n> / <LAPI_PORT> in on <TUNNEL_IFACE> from <VPS_TUNNEL_ADDR>
+#   allow in on <TUNNEL_IFACE> from <TAILNET_SNAT_ADDR>
+#   default deny incoming

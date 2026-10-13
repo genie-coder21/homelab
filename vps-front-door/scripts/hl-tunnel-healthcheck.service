@@ -1,0 +1,7 @@
+[Unit]
+Description=Verify the WireGuard tunnel to the VPS is actually carrying traffic
+After=wg-quick@wg0.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hl-tunnel-healthcheck

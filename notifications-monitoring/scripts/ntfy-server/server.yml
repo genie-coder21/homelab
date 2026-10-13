@@ -1,0 +1,17 @@
+# ntfy server config. LAN + VPN only (no public hostname).
+# base-url must match EXACTLY the server URL entered in the phone/desktop apps.
+base-url: "http://<SERVER_IP>:<NTFY_PORT>"
+listen-http: ":80"
+cache-file: "/var/cache/ntfy/cache.db"
+cache-duration: "72h"
+attachment-cache-dir: "/var/cache/ntfy/attachments"
+# Nobody can read or write without a login or token.
+auth-file: "/var/lib/ntfy/user.db"
+auth-default-access: "deny-all"
+# iPhone push: ntfy.sh only receives a "poll request" (message ID + hashed topic) to wake the
+# app through Apple; the app then fetches the real message from this server. Content stays home.
+upstream-base-url: "https://ntfy.sh"
+enable-signup: false
+enable-login: true
+web-root: "/"
+log-level: "info"

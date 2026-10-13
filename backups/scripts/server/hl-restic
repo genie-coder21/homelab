@@ -1,0 +1,23 @@
+#!/bin/bash
+# Run any restic command against the backup repository. Secrets stay TPM-encrypted:
+# they are decrypted by systemd into a private credentials directory for this one run.
+# ---- CONFIG ----
+SHARE="//<BACKUP_HOST_IP>/<SHARE_NAME>"
+MNT=/mnt/backup-target
+REPO="$MNT/<VAULT_DIR>/server"
+SMB_CRED=/etc/credstore.encrypted/<SMB_CRED_NAME>
+RESTIC_CRED=/etc/credstore.encrypted/<RESTIC_CRED_NAME>
+# ----------------
+exec systemd-run --pipe --quiet --collect \
+  --unit="hl-restic-$$" \
+  --property=LoadCredentialEncrypted=smbcred:"$SMB_CRED" \
+  --property=LoadCredentialEncrypted=resticpw:"$RESTIC_CRED" \
+  --setenv=RESTIC_CACHE_DIR=/var/cache/restic --setenv=HOME=/root \
+  --setenv=SHARE="$SHARE" --setenv=MNT="$MNT" --setenv=REPO="$REPO" \
+  /bin/bash -c '
+    mountpoint -q "$MNT" || mount -t cifs "$SHARE" "$MNT" \
+      -o credentials=$CREDENTIALS_DIRECTORY/smbcred,uid=0,gid=0,file_mode=0600,dir_mode=0700,vers=3.1.1,nounix,noserverino
+    export RESTIC_REPOSITORY="$REPO"
+    export RESTIC_PASSWORD_FILE=$CREDENTIALS_DIRECTORY/resticpw
+    restic "$@"
+  ' _ "$@"

@@ -1,0 +1,376 @@
+#!/usr/bin/python3
+"""vmctl - control the kids' Hyper-V VMs on the gaming-pc from the always-on server.
+
+Every `ssh <gaming-pc> powershell ...` call in this project goes through here, so the
+quoting rules live in exactly one place.
+
+The gaming-pc's default SSH shell is cmd.exe, so ';' is NOT a command separator and
+'|' gets parsed by cmd before PowerShell sees it. Every script is therefore sent as
+powershell -EncodedCommand <base64 UTF-16LE> (see ps() below).
+
+STUB MODE: while Hyper-V does not exist yet, set KIDS_VM_STUB=1 (the default until the
+gaming-pc is ready) and every Hyper-V call is simulated from a local state file. That
+lets the launcher and watchdog be built and tested end to end before the VMs exist.
+Set KIDS_VM_STUB=0 once the real VMs are built.
+"""
+from __future__ import annotations
+
+import base64
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# ------------------------------------------------------------------ site config
+# Everything site-specific comes from the environment (set in the systemd units).
+#   KIDS_VM_SSH_HOST   ssh alias of the gaming-pc (key-based login, in ~/.ssh/config)
+#   KIDS_VM_HOST_IP    the gaming-pc's LAN address
+#   KIDS_VM_HOST_MAC   the gaming-pc's NIC MAC, for wake-on-LAN
+#   KIDS_VM_BROADCAST  the LAN broadcast address
+#   KIDS_VM_CRED_DIR   folder ON THE GAMING-PC holding one DPAPI-encrypted guest-admin
+#                      credential per VM (<vm>.xml), used for PowerShell Direct
+HOST_SSH   = os.environ.get("KIDS_VM_SSH_HOST", "gaming-pc")
+HOST_IP    = os.environ.get("KIDS_VM_HOST_IP", "<GAMING_PC_IP>")
+HOST_MAC   = os.environ.get("KIDS_VM_HOST_MAC", "<GAMING_PC_MAC>")
+BROADCAST  = os.environ.get("KIDS_VM_BROADCAST", "<LAN_BROADCAST>")
+CRED_DIR   = os.environ.get("KIDS_VM_CRED_DIR", r"<GUEST_CRED_DIR>")
+STUB       = os.environ.get("KIDS_VM_STUB", "1") not in ("0", "false", "no")
+STUB_STATE = Path("/var/lib/kids-launcher/stub-state.json")
+VNC_PORT   = int(os.environ.get("KIDS_VM_VNC_PORT", "5900"))
+SSH_TIMEOUT= int(os.environ.get("KIDS_VM_SSH_TIMEOUT", "25"))
+
+
+# ---------------------------------------------------------------- stub backing store
+def _stub_load() -> dict:
+    try:
+        return json.loads(STUB_STATE.read_text())
+    except (OSError, ValueError):
+        return {"vms": {n: {"state": "Saved", "ip": ""} for n in ("kid1", "kid2", "kid3")},
+                "keepawake": False}
+
+
+def _stub_save(d: dict) -> None:
+    STUB_STATE.parent.mkdir(parents=True, exist_ok=True)
+    STUB_STATE.write_text(json.dumps(d, indent=2))
+
+
+# ---------------------------------------------------------------- real transport
+def ps(script: str) -> subprocess.CompletedProcess:
+    """Run a PowerShell snippet on the gaming-pc over SSH.
+
+    Uses -EncodedCommand (base64 of UTF-16LE) rather than -Command. ssh joins its
+    arguments into one remote command line which the gaming-pc's **cmd.exe** then
+    parses, so a script containing `|`, `>`, `&` or quotes gets mangled before
+    PowerShell ever sees it — `Get-VM | Select-Object ...` silently returned nothing
+    until this was fixed. Base64 has no shell metacharacters, so nothing can be
+    misinterpreted no matter how the script is written.
+    """
+    # Suppress the progress stream: over SSH it leaks into stdout as raw CLIXML
+    # ("#< CLIXML <Objs Version=..."), which buries real output and would break any
+    # parsing of the result.
+    script = "$ProgressPreference='SilentlyContinue'; " + script
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    # Multiplex over one connection: ControlPersist keeps it open, so repeat calls skip
+    # the TCP + crypto handshake entirely. The watchdog makes several calls a minute and
+    # was paying a full handshake for each.
+    ctl = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp",
+                       f"vmctl-ssh-{os.getuid()}-%h")
+    return subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={SSH_TIMEOUT}",
+         "-o", "ControlMaster=auto", "-o", f"ControlPath={ctl}", "-o", "ControlPersist=120",
+         HOST_SSH, "powershell", "-NoProfile", "-EncodedCommand", encoded],
+        capture_output=True, text=True, timeout=SSH_TIMEOUT + 20)
+
+
+# ---------------------------------------------------------------- host power
+def host_up() -> bool:
+    """Is the gaming-pc reachable? SSH port, not ping - ICMP proves nothing here."""
+    try:
+        # 1.5 s, not 4: an awake host on this LAN answers in ~3 ms, and this timeout
+        # is paid in full on every cold wake while we work out the PC is asleep.
+        with socket.create_connection((HOST_IP, 22), timeout=1.5):
+            return True
+    except OSError:
+        return False
+
+
+def wake_host() -> None:
+    """Wake-on-LAN magic packet: 6 x 0xFF + the MAC 16 times, broadcast on UDP 7 and 9.
+    Wakes the gaming-pc from S3 in ~8 s once the firmware lets the NIC keep standby
+    power (see the README's wake-on-LAN section)."""
+    packet = b"\xff" * 6 + bytes.fromhex(HOST_MAC.replace(":", "").replace("-", "")) * 16
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        for port in (7, 9):
+            try:
+                s.sendto(packet, (BROADCAST, port))
+            except OSError:
+                pass
+
+
+def wait_host(timeout: int = 120) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if host_up():
+            return True
+        time.sleep(3)
+    return False
+
+
+# ---------------------------------------------------------------- VM operations
+class VmctlUnreachable(RuntimeError):
+    """Raised when the gaming-pc could not be asked, as opposed to answering 'no'."""
+
+
+def vm_list() -> list[dict]:
+    if STUB:
+        d = _stub_load()
+        return [{"name": n, "state": v["state"], "ip": v.get("ip", "")}
+                for n, v in sorted(d["vms"].items())]
+    r = ps("Get-VM | Select-Object Name,State | ConvertTo-Json -Compress")
+    # An unreachable gaming-pc must NOT look like "there are no VMs". Returning [] for
+    # both meant a broken SSH key read as "nothing is running", and the watchdog would
+    # then release keepawake while kids were mid-game. Raise instead, so callers decide.
+    if r.returncode != 0:
+        raise VmctlUnreachable((r.stderr or "ssh failed").strip()[:120])
+    try:
+        data = json.loads(r.stdout or "[]")
+    except ValueError:
+        raise VmctlUnreachable("unparseable reply from Get-VM")
+    if isinstance(data, dict):
+        data = [data]
+    # Hyper-V's VMState comes back as an enum *number* through ConvertTo-Json.
+    states = {2: "Running", 3: "Off", 6: "Saved", 9: "Paused", 10: "Starting",
+              4: "ShuttingDown", 8: "Saving", 11: "Reset"}
+    out = []
+    for v in data:
+        st = v.get("State")
+        out.append({"name": v.get("Name"),
+                    "state": states.get(st, str(st)) if isinstance(st, int) else str(st),
+                    "ip": ""})
+    return out
+
+
+def vm_state(name: str) -> str:
+    """The VM's state, or 'Unreachable' if we could not ask.
+
+    'Unreachable' is deliberately NOT 'NotFound': one means the host is down or the key is
+    broken, the other means the VM genuinely does not exist. Callers must treat the first
+    as "change nothing".
+    """
+    try:
+        vms = vm_list()
+    except VmctlUnreachable:
+        return "Unreachable"
+    for v in vms:
+        if v["name"] == name:
+            return v["state"]
+    return "NotFound"
+
+
+def vm_start(name: str) -> tuple[bool, str]:
+    if STUB:
+        d = _stub_load()
+        if name not in d["vms"]:
+            return False, "NotFound"
+        d["vms"][name]["state"] = "Running"
+        d["vms"][name]["ip"] = d["vms"][name].get("ip") or "0.0.0.0"
+        _stub_save(d)
+        return True, "Running (stub)"
+    r = ps(f"Start-VM -Name '{name}' -ErrorAction Stop; 'ok'")
+    return (r.returncode == 0), (r.stdout or r.stderr).strip()[:200]
+
+
+def vm_save(name: str) -> tuple[bool, str]:
+    """Save-VM is Hyper-V's hibernate: RAM to disk, memory returned to the host,
+    resumes in seconds. The equivalent of libvirt's managedsave."""
+    if STUB:
+        d = _stub_load()
+        if name not in d["vms"]:
+            return False, "NotFound"
+        d["vms"][name]["state"] = "Saved"
+        _stub_save(d)
+        return True, "Saved (stub)"
+    r = ps(f"Save-VM -Name '{name}' -ErrorAction Stop; 'ok'")
+    return (r.returncode == 0), (r.stdout or r.stderr).strip()[:200]
+
+
+def vm_ip(name: str) -> str:
+    if STUB:
+        return _stub_load()["vms"].get(name, {}).get("ip", "")
+    r = ps("$ip=(Get-VMNetworkAdapter -VMName '%s').IPAddresses | "
+           "Where-Object { $_ -notmatch ':' } | Select-Object -First 1; "
+           "if ($ip) { $ip } else { '' }" % name)
+    return (r.stdout or "").strip()
+
+
+def vnc_ready(ip: str, port: int = VNC_PORT) -> bool:
+    if not ip:
+        return False
+    try:
+        with socket.create_connection((ip, port), timeout=3):
+            return True
+    except OSError:
+        return False
+
+
+def keepawake(on: bool) -> tuple[bool, str]:
+    """Hold the gaming-pc awake while a VM is running. The hook itself lives on the
+    gaming-pc (gaming-pc/keepawake/); this only calls it."""
+    if STUB:
+        d = _stub_load()
+        d["keepawake"] = on
+        _stub_save(d)
+        return True, f"keepawake={'on' if on else 'off'} (stub)"
+    verb = "on" if on else "off"
+    # Set-ExecutionPolicy for THIS PROCESS ONLY, because the gaming-pc's policy blocked
+    # running .ps1 files and the call silently failed with "running scripts is disabled
+    # on this system" - and the caller then reported the host was held awake when it was not.
+    # Process scope changes nothing persistent on that machine.
+    r = ps("Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; "
+           f"& 'C:\\ProgramData\\kids-vms\\keepawake.ps1' -Mode {verb}")
+    out = (r.stdout or r.stderr).strip()
+    # The script prints its own status; treat an error mentioning the file as a failure
+    # even if the exit code is 0, since PowerShell is lax about that.
+    ok = r.returncode == 0 and "cannot be loaded" not in out and "is disabled" not in out
+    return ok, out[:200]
+
+
+def vm_sessions(name: str) -> tuple[int, str]:
+    """How many people are actually attached to this VM?
+
+    Asks INSIDE the guest via PowerShell Direct, which needs no guest network at all.
+    Counts established connections to VNC (5900) and Sunshine's stream ports.
+
+    Returns (count, detail). **A count of -1 means "could not tell"** — the watchdog
+    treats that as "someone might be using it" and does NOT save the VM. Guessing wrong
+    in that direction interrupts a child mid-game; guessing wrong the other way just
+    leaves a VM running a little longer.
+    """
+    if STUB:
+        return -1, "stub"
+    # $ProgressPreference must be set INSIDE the scriptblock as well as outside. This runs
+    # in a nested PowerShell Direct session with its own defaults, and its progress stream
+    # comes back serialised as CLIXML on stderr, which used to force a -1 "cannot tell".
+    script = (
+        "$ProgressPreference='SilentlyContinue'; "
+        # @() matters: with exactly ONE match $c is a bare object, not an array, and
+        # $c.Count returns *nothing* in PowerShell 5.1 - so a single connected player
+        # produced empty output and read as "cannot tell". Forcing an array makes .Count
+        # valid for 0, 1 and many, which also removes the need for the if/else.
+        # Only ports that mean SOMEONE IS ACTUALLY USING IT:
+        #   5900  VNC  - a browser/Guacamole session
+        #   48010 RTSP - Sunshine's stream setup, i.e. a live Moonlight stream
+        # 47984/47989 are deliberately EXCLUDED. Moonlight holds those open merely to show
+        # "PC online" in its list, with no stream running - counting them meant a kid who
+        # left Moonlight open on the iPad pinned the VM awake forever, and the gaming-pc
+        # with it. That is the whole point of the idle timer, so it has to be right.
+        "$c = @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue | "
+        "Where-Object { $_.LocalPort -in @(5900,48010) }); "
+        "$c.Count"
+    )
+    r = ps(
+        "$ErrorActionPreference='Stop'; "
+        f"$cred = Import-CliXml '{CRED_DIR}\\{name}.xml'; "
+        f"Invoke-Command -VMName '{name}' -Credential $cred -ScriptBlock {{ {script} }}"
+    )
+    # Pull the count out rather than demanding stdout be nothing but a digit: PowerShell
+    # over SSH is prone to prepending CLIXML or banner noise, and treating that as "cannot
+    # tell" meant the watchdog never suspended the VM. Take the LAST bare integer on its
+    # own line, which is the scriptblock's actual return value.
+    out = (r.stdout or "").strip()
+    nums = re.findall(r"^\s*(\d+)\s*$", out, re.MULTILINE)
+    if r.returncode != 0 or not nums:
+        detail = (r.stderr or out).strip().replace("\n", " ")
+        return -1, (detail[:120] or "no answer")
+    return int(nums[-1]), "ok"
+
+
+# ---------------------------------------------------------------- cli
+USAGE = """vmctl - control the kids' VMs on the gaming-pc
+
+  vmctl list                 all VMs and their state
+  vmctl state <vm>           one VM's state
+  vmctl start <vm>           start or resume
+  vmctl save  <vm>           save state, return the RAM to the host
+  vmctl ip    <vm>           the guest's LAN address
+  vmctl sessions <vm>        how many people are attached (-1 = cannot tell)
+  vmctl host-up              is the gaming-pc reachable (exit 0 = yes)
+  vmctl wake                 send a wake-on-LAN packet
+  vmctl wait-host [secs]     wake if needed, then wait until reachable
+  vmctl keepawake on|off     hold the gaming-pc awake / release it
+  vmctl mode                 report whether this is stub or live
+
+Stub mode is controlled by KIDS_VM_STUB (default 1 until the VMs exist).
+"""
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(USAGE)
+        return 0
+    cmd, args = argv[0], argv[1:]
+
+    if cmd == "mode":
+        print("stub" if STUB else "live")
+        return 0
+    if cmd == "list":
+        for v in vm_list():
+            print(f"{v['name']:<10} {v['state']:<12} {v.get('ip','')}")
+        return 0
+    if cmd == "host-up":
+        up = host_up()
+        print("up" if up else "down")
+        return 0 if up else 1
+    if cmd == "wake":
+        wake_host()
+        print("magic packet sent")
+        return 0
+    if cmd == "wait-host":
+        timeout = int(args[0]) if args else 120
+        if host_up():
+            print("already up")
+            return 0
+        wake_host()
+        ok = wait_host(timeout)
+        print("up" if ok else f"still down after {timeout}s")
+        return 0 if ok else 1
+    if cmd == "keepawake":
+        if not args or args[0] not in ("on", "off"):
+            print(USAGE)
+            return 2
+        ok, msg = keepawake(args[0] == "on")
+        print(msg)
+        return 0 if ok else 1
+
+    if not args:
+        print(USAGE)
+        return 2
+    name = args[0]
+    if cmd == "state":
+        print(vm_state(name)); return 0
+    if cmd == "ip":
+        print(vm_ip(name)); return 0
+    if cmd == "sessions":
+        n, detail = vm_sessions(name)
+        print(f"{n} {detail}")
+        return 0
+    if cmd == "start":
+        ok, msg = vm_start(name); print(msg); return 0 if ok else 1
+    if cmd == "save":
+        ok, msg = vm_save(name); print(msg); return 0 if ok else 1
+
+    print(USAGE)
+    return 2
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except subprocess.TimeoutExpired:
+        print("timed out talking to the gaming-pc", file=sys.stderr)
+        sys.exit(1)

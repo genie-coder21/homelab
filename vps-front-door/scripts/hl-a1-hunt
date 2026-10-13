@@ -1,0 +1,68 @@
+#!/bin/bash
+# hl-a1-hunt: keep trying to create an Always Free Ampere A1 instance until the cloud
+# has capacity. Run by hl-a1-hunt.timer every ~5 minutes.
+#
+# Never makes a second one: every run first looks for an existing instance with the
+# target name and does nothing else if that lookup fails or can't be parsed. Once the
+# instance is confirmed RUNNING and reachable over SSH it records the result, sends a
+# notification and disables its own timer.
+set -uo pipefail
+
+# ---------------------------------------------------------------- config (edit me)
+NAME="<INSTANCE_NAME>"                       # display name of the instance to create
+OCI="hl-oci"                                 # OCI CLI wrapper (see hl-oci)
+OCI_CONFIG="<PATH_TO_OCI_CONFIG>"            # used only to read the tenancy ID
+SUBNET="<SUBNET_OCID>"
+IMAGE="<IMAGE_OCID>"                         # Ubuntu aarch64 image in your home region
+AD_PREFIX="<AD_PREFIX>"                      # e.g. "xxxx:REGION-AD-" ; 1..N appended
+AD_COUNT=3
+OCPUS=2
+MEMORY_GB=12
+BOOT_GB=50
+SSH_USER="ubuntu"
+SSH_KEY="<PATH_TO_NEW_INSTANCE_PRIVATE_KEY>" # .pub alongside it is injected
+NOTIFY_CMD="<NOTIFY_COMMAND>"                # called as: $NOTIFY_CMD "<title>" "<message>"
+TIMER_UNIT="hl-a1-hunt.timer"
+STATE=${STATE_DIRECTORY:-/var/lib/hl-a1-hunt}
+# ---------------------------------------------------------------------------------
+
+T=$(grep ^tenancy= "$OCI_CONFIG" | cut -d= -f2)
+
+exec 9>"$STATE/lock"; flock -n 9 || { echo "previous run still going"; exit 0; }
+N=$(( $(cat "$STATE/attempts" 2>/dev/null || echo 0) + 1 )); echo $N > "$STATE/attempts"
+
+# 1. Does it already exist? (anything not terminated counts)
+if ! found=$($OCI compute instance list --compartment-id "$T" --display-name "$NAME" --all \
+      --query 'data[?"lifecycle-state"!=`TERMINATED` && "lifecycle-state"!=`TERMINATING`].[id,"lifecycle-state"]' \
+      --output json 2>"$STATE/last-error"); then
+  echo "run $N: lookup failed, not launching: $(head -c 300 "$STATE/last-error")"; exit 0
+fi
+# A parse error here must abort the round, never fall through to a launch.
+parsed=$(python3 -c 'import json,sys; d=json.loads(sys.stdin.read() or "[]"); print(*(d[0] if d else ["",""]))' <<<"$found") \
+  || { echo "run $N: lookup reply not JSON, not launching this round"; exit 0; }
+read -r ID ST <<<"$parsed"
+
+if [ -n "$ID" ]; then
+  echo "run $N: $NAME exists, state $ST"
+  [ "$ST" = RUNNING ] || exit 0          # provisioning/starting: check again next round
+  IP=$($OCI compute instance list-vnics --instance-id "$ID" --query 'data[0]."public-ip"' --raw-output 2>/dev/null)
+  SSH=$(timeout 60 ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+        -i "$SSH_KEY" "$SSH_USER@$IP" 'uname -m' 2>&1 | tail -1)
+  printf 'confirmed %s\nid=%s\nip=%s\nssh=%s\nattempts=%s\n' "$(date -Is)" "$ID" "$IP" "$SSH" "$N" > "$STATE/RESULT"
+  $NOTIFY_CMD "Cloud instance created" "$NAME is RUNNING after $N tries (ssh: $SSH)."
+  echo "CONFIRMED: $NAME RUNNING after $N runs, disabling the timer"
+  sudo systemctl disable --now "$TIMER_UNIT"
+  exit 0
+fi
+
+# 2. Not there yet: try each availability domain once, fail fast (no CLI retry/backoff).
+for ad in $(seq 1 "$AD_COUNT"); do
+  if out=$($OCI compute instance launch --no-retry --compartment-id "$T" \
+        --availability-domain "${AD_PREFIX}${ad}" --display-name "$NAME" \
+        --shape VM.Standard.A1.Flex --shape-config "{\"ocpus\":$OCPUS,\"memoryInGBs\":$MEMORY_GB}" \
+        --image-id "$IMAGE" --subnet-id "$SUBNET" --assign-public-ip true --boot-volume-size-in-gbs "$BOOT_GB" \
+        --ssh-authorized-keys-file "$SSH_KEY.pub" --query 'data.id' --raw-output 2>&1); then
+    echo "run $N: LAUNCHED in AD-$ad; will confirm RUNNING next round"; exit 0
+  fi
+  echo "run $N AD-$ad: $(grep -o '"message": "[^"]*"' <<<"$out" | head -1 || echo "${out:0:200}")"
+done

@@ -1,0 +1,11 @@
+[Unit]
+Description=Try to create the Always Free A1 instance (stops itself once it exists)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=<SERVICE_USER>
+StateDirectory=hl-a1-hunt
+ExecStart=/usr/local/sbin/hl-a1-hunt
+TimeoutStartSec=15min

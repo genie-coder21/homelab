@@ -1,0 +1,25 @@
+# ntfy - self-hosted push notifications. LAN + VPN only; no public hostname.
+services:
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    container_name: ntfy
+    command: serve
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      - TZ=${TZ:-UTC}
+    ports:
+      - "${NTFY_PORT:?set NTFY_PORT}:80"
+    volumes:
+      - ./etc:/etc/ntfy
+      - ./lib:/var/lib/ntfy
+      - ./cache:/var/cache/ntfy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -Eo '\"healthy\"\\s*:\\s*true' || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    networks: [apps]
+networks:
+  apps:
+    external: true

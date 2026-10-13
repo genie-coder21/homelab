@@ -1,0 +1,134 @@
+#!/usr/bin/python3
+"""Save idle kids' VMs and let the gaming-pc sleep again.
+
+Runs every minute from a timer. For each VM that is Running:
+
+  * ask how many people are attached (VNC + Sunshine, via PowerShell Direct)
+  * if nobody has been attached for IDLE_MINUTES, `Save-VM` it
+  * once the LAST VM is saved, release `keepawake` so the gaming-pc can sleep
+
+SAFETY: if we cannot determine the session count (`-1`), the VM is treated as IN USE and
+left alone. Interrupting a child mid-game is far worse than leaving a VM running, so
+every ambiguous case errs towards leaving it up. The gaming-pc's own keepawake also
+self-releases after 10 minutes with nothing Running, as a second backstop.
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+VMCTL         = os.environ.get("VMCTL", "/usr/local/sbin/vmctl")
+CONFIG        = os.environ.get("KIDS_FILE", "/opt/kids-launcher/kids.json")
+STATE         = Path(os.environ.get("WATCHDOG_STATE", "/var/lib/kids-launcher/idle-state.json"))
+IDLE_MINUTES  = int(os.environ.get("IDLE_MINUTES", "30"))
+DRY_RUN       = os.environ.get("WATCHDOG_DRY_RUN", "1") not in ("0", "false", "no")
+
+
+def log(msg: str) -> None:
+    print(msg, flush=True)
+
+
+def run(*args: str, timeout: int = 90) -> tuple[int, str]:
+    try:
+        r = subprocess.run([VMCTL, *args], capture_output=True, text=True, timeout=timeout)
+        return r.returncode, (r.stdout or r.stderr).strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return 1, "vmctl failed"
+
+
+def load_state() -> dict:
+    try:
+        return json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(d: dict) -> None:
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(d, indent=2))
+
+
+def main() -> int:
+    try:
+        vms = list((json.loads(Path(CONFIG).read_text()).get("vms") or {}).keys())
+    except (OSError, ValueError) as e:
+        log(f"cannot read {CONFIG}: {e}")
+        return 1
+
+    rc, _ = run("host-up", timeout=25)
+    if rc != 0:
+        return 0                      # gaming-pc asleep: nothing to do, and do not wake it
+
+    state = load_state()
+    now = time.time()
+    running_after = 0
+
+    for vm in vms:
+        rc, st = run("state", vm)
+        if st == "Unreachable":
+            # We could not ask the gaming-pc. That is NOT evidence that nothing is
+            # running, so change nothing at all: do not save VMs, do not drop idle
+            # timers, and above all do not release keepawake. Try again next minute.
+            log(f"{vm}: gaming-pc unreachable — leaving everything alone this pass")
+            return 0
+        if rc != 0 or st != "Running":
+            state.pop(vm, None)
+            continue
+
+        out = run("sessions", vm)[1]
+        try:
+            count = int(out.split()[0])
+        except (ValueError, IndexError):
+            count = -1
+
+        if count != 0:
+            # In use, or we could not tell. Either way, leave it alone.
+            state[vm] = now
+            running_after += 1
+            if count < 0:
+                log(f"{vm}: cannot determine sessions ({out}) — leaving it running")
+            continue
+
+        idle_since = state.setdefault(vm, now)
+        idle_min = (now - idle_since) / 60
+        if idle_min < IDLE_MINUTES:
+            running_after += 1
+            log(f"{vm}: idle {idle_min:.0f}/{IDLE_MINUTES} min")
+            continue
+
+        if DRY_RUN:
+            log(f"{vm}: DRY RUN — would Save-VM after {idle_min:.0f} min idle")
+            running_after += 1
+            continue
+
+        rc, out = run("save", vm, timeout=180)
+        if rc == 0:
+            log(f"{vm}: saved after {idle_min:.0f} min idle")
+            state.pop(vm, None)
+        else:
+            log(f"{vm}: save failed: {out[:120]}")
+            running_after += 1
+
+    # Nothing left running -> let the gaming-pc sleep again. The gaming-pc's
+    # keepawake also self-releases after 10 min, but relying on that would leave the
+    # machine awake longer than it needs to be every single time.
+    if running_after == 0 and state.get("_keepawake") is not False:
+        if DRY_RUN:
+            log("no VMs running — DRY RUN would release keepawake")
+        else:
+            run("keepawake", "off", timeout=60)
+            log("no VMs running — keepawake released")
+            state["_keepawake"] = False
+    elif running_after:
+        state.pop("_keepawake", None)
+
+    save_state(state)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

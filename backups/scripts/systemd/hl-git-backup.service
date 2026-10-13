@@ -1,0 +1,15 @@
+[Unit]
+Description=Off-site copy of the docs and a private project to private GitHub repos
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=<SERVICE_USER>
+Group=<SERVICE_USER>
+LoadCredentialEncrypted=docs-deploy-key:/etc/credstore.encrypted/<DOCS_KEY_CRED_NAME>
+LoadCredentialEncrypted=project-deploy-key:/etc/credstore.encrypted/<PROJECT_KEY_CRED_NAME>
+# Root-only pattern file (personal data that must never be pushed). Not published.
+LoadCredential=personal.patterns:/etc/hl-git-backup/personal.patterns
+ExecStart=/usr/local/sbin/hl-git-backup
+TimeoutStartSec=300

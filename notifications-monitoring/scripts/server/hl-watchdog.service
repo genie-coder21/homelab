@@ -1,0 +1,8 @@
+[Unit]
+Description=hl-watchdog: generic health checks -> ntfy (mounts, containers, tunnel, disks, backups)
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hl-watchdog
+TimeoutStartSec=4min

@@ -1,0 +1,10 @@
+# /etc/crowdsec/acquis.d/ on the VPS: what the agent reads.
+filenames:
+  - /var/log/nginx/*.log
+labels:
+  type: nginx
+---
+filenames:
+  - /var/log/auth.log
+labels:
+  type: syslog

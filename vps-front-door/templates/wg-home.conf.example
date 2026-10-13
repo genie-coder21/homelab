@@ -1,0 +1,12 @@
+# Home server side of the tunnel. Dials OUT to the VPS; no inbound port needed at home.
+[Interface]
+Address = <HOME_TUNNEL_ADDR>/24          # e.g. 192.0.2.2/24
+PrivateKey = <HOME_PRIVATE_KEY>          # keep in a root-only key file, never in git
+
+[Peer]
+PublicKey = <VPS_PUBLIC_KEY>
+Endpoint = <VPS_PUBLIC_IP>:<WG_PORT>     # e.g. 203.0.113.10
+# Only the tunnel subnet goes into the tunnel; normal home traffic is unaffected.
+# A /24 (not just the VPS's /32) so replies reach the subnet router's SNAT address.
+AllowedIPs = <TUNNEL_SUBNET>/24          # e.g. 192.0.2.0/24
+PersistentKeepalive = 25

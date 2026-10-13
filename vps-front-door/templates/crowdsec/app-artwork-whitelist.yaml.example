@@ -1,0 +1,9 @@
+# /etc/crowdsec/parsers/s02-enrich/app-artwork-whitelist.yaml
+# App clients request missing artwork constantly; those 404s look like scanning and
+# would ban real users. Ignore 404s on image endpoints only.
+name: local/app-artwork-whitelist
+description: "Ignore 404s on app image endpoints"
+whitelist:
+  reason: "missing artwork is not scanning"
+  expression:
+    - evt.Meta.http_status == '404' && evt.Meta.http_path matches '<IMAGE_PATH_REGEX>'

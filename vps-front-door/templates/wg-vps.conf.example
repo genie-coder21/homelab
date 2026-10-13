@@ -1,0 +1,11 @@
+# VPS side of the tunnel.
+[Interface]
+Address = <VPS_TUNNEL_ADDR>/24           # e.g. 192.0.2.1/24
+ListenPort = <WG_PORT>
+PrivateKey = <VPS_PRIVATE_KEY>
+MTU = <MTU>                              # lower than default if the cloud network needs it
+
+[Peer]
+# home server
+PublicKey = <HOME_PUBLIC_KEY>
+AllowedIPs = <HOME_TUNNEL_ADDR>/32       # e.g. 192.0.2.2/32 (add the home LAN only if routing it)

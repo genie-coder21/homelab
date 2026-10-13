@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""Show queued backup notifications on the server's desktop, then clear them.
+
+Runs at graphical login (so messages queued during an overnight backup are seen
+whenever someone next logs in) and right after each backup (so they show at once if
+someone is already logged in). Also warns if no backup has succeeded for 48 hours.
+
+This predates the ntfy hub and is the local-desktop fallback: the backup job appends
+one JSON line per result to QUEUE, and this script turns them into desktop popups.
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+# ---- site config ----------------------------------------------------------
+STATE = Path("/var/lib/hl-backup")
+QUEUE = STATE / "notify-queue.jsonl"
+STATUS = STATE / "status.json"
+STALE_AFTER = timedelta(hours=48)
+# ---------------------------------------------------------------------------
+
+
+def desktop_session() -> tuple[str, str] | None:
+    """Return (uid, DBus address) of an active graphical session, if any."""
+    out = subprocess.run(["loginctl", "list-sessions", "--no-legend"],
+                         capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        sid = line.split()[0]
+        props = subprocess.run(["loginctl", "show-session", sid, "-p", "Type", "-p", "User",
+                                "-p", "State", "-p", "Active"],
+                               capture_output=True, text=True).stdout
+        p = dict(kv.split("=", 1) for kv in props.strip().splitlines() if "=" in kv)
+        if p.get("Type") in {"x11", "wayland"} and p.get("State") == "active":
+            uid = p.get("User", "1000")
+            return uid, f"unix:path=/run/user/{uid}/bus"
+    return None
+
+
+def notify(uid: str, bus: str, title: str, body: str, urgent: bool) -> None:
+    env = os.environ | {"DBUS_SESSION_BUS_ADDRESS": bus}
+    cmd = ["notify-send", "--app-name=Backup", f"--urgency={'critical' if urgent else 'normal'}",
+           "--icon=" + ("dialog-warning" if urgent else "document-save"), title, body]
+    if os.geteuid() == 0:   # drop to the desktop user so the popup lands in their session
+        cmd = ["setpriv", "--reuid", uid, "--regid", uid, "--clear-groups", *cmd]
+    subprocess.run(cmd, env=env, capture_output=True)
+
+
+def main() -> int:
+    session = desktop_session()
+    if not session:
+        return 0                                   # nobody logged in: keep the queue for later
+    uid, bus = session
+
+    pending = []
+    if QUEUE.exists():
+        for line in QUEUE.read_text().splitlines():
+            try:
+                pending.append(json.loads(line))
+            except ValueError:
+                pass
+
+    if pending:
+        if len(pending) == 1:
+            n = pending[0]
+            notify(uid, bus, n["title"], n["body"], n.get("urgent", False))
+        else:                                      # collapse a backlog into one summary
+            failures = [n for n in pending if n.get("urgent")]
+            when = datetime.fromisoformat(pending[0]["when"]).astimezone()
+            body = (f"{len(pending)} backups since {when:%a %d %b}\n"
+                    f"{len(pending) - len(failures)} succeeded, {len(failures)} failed\n\n"
+                    f"Latest: {pending[-1]['body'].splitlines()[0]}")
+            notify(uid, bus, "Backup summary", body, urgent=bool(failures))
+        QUEUE.unlink(missing_ok=True)
+
+    if STATUS.exists():
+        st = json.loads(STATUS.read_text())
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(st["finished"])
+        if age > STALE_AFTER:
+            notify(uid, bus, "No recent backup",
+                   f"Last successful backup was {int(age.total_seconds() // 3600)} hours ago.",
+                   urgent=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,6 @@
+[Unit]
+Description=Trim Docker build cache (daily backstop for hl-compose's per-build trim)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker builder prune --keep-storage 30GB -f

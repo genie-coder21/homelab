@@ -1,0 +1,7 @@
+*.bak*
+*.env
+.env*
+*.key
+*.pem
+*.log
+kids.json

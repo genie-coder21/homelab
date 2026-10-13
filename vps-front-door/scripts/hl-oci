@@ -1,0 +1,20 @@
+#!/bin/bash
+# hl-oci: run the Oracle Cloud CLI with the API key from an encrypted credential store.
+# The key is decrypted to a private file on tmpfs for this one command, then shredded.
+# Each call gets its own key + config copy, so parallel/nested calls can't delete each
+# other's key.
+set -euo pipefail
+
+# ---------------------------------------------------------------- config (edit me)
+SECRET_CMD="<COMMAND_THAT_PRINTS_THE_API_KEY>"   # e.g. a systemd-creds decrypt wrapper
+OCI_CONFIG="<PATH_TO_OCI_CONFIG>"                # IDs only; key_file is a placeholder
+OCI_BIN="<PATH_TO_OCI_CLI>"
+# ---------------------------------------------------------------------------------
+
+umask 077
+R="/run/user/$(id -u)"; [ -d "$R" ] || R=/dev/shm   # no per-user runtime dir under systemd units
+D=$(mktemp -d "$R/hl-oci.XXXXXX")
+trap 'shred -u "$D/key.pem" 2>/dev/null; rm -rf "$D"' EXIT
+$SECRET_CMD > "$D/key.pem"
+sed "s|^key_file=.*|key_file=$D/key.pem|" "$OCI_CONFIG" > "$D/config"
+"$OCI_BIN" --config-file "$D/config" "$@"

@@ -1,0 +1,32 @@
+#!/bin/bash
+# Catch the "half-up tunnel" state, which is silent and therefore dangerous.
+#
+# NetworkManager once adopted the WireGuard interface and later disconnected it,
+# flushing its address. WireGuard kept handshaking, so `systemctl status` and `wg show`
+# both looked healthy, but with no address the on-link route was gone and the VPS was
+# unreachable. This checks what actually matters.
+#
+# Do NOT test with ping: the VPS filters ICMP. Use TCP.
+set -u
+
+# ---------------------------------------------------------------- config (edit me)
+IFACE="wg0"
+LOCAL_ADDR="<HOME_TUNNEL_ADDR>/<PREFIX>"   # e.g. 192.0.2.2/24
+PEER_ADDR="<VPS_TUNNEL_ADDR>"              # e.g. 192.0.2.1
+PEER_TCP_PORT=443                          # any TCP port the VPS answers on via the tunnel
+# ---------------------------------------------------------------------------------
+
+log(){ logger -t hl-tunnel-healthcheck "$*"; echo "$*"; }
+
+if ! ip -4 addr show "$IFACE" 2>/dev/null | grep -q "inet $LOCAL_ADDR"; then
+  log "$IFACE has no address, restarting wg-quick@$IFACE"
+  systemctl restart "wg-quick@$IFACE.service"
+  exit 0
+fi
+
+if ! timeout 6 bash -c "cat </dev/null >/dev/tcp/$PEER_ADDR/$PEER_TCP_PORT" 2>/dev/null; then
+  log "$IFACE has its address but the VPS is unreachable on TCP, restarting wg-quick@$IFACE"
+  systemctl restart "wg-quick@$IFACE.service"
+  exit 0
+fi
+exit 0

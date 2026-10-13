@@ -1,0 +1,38 @@
+# restic exclude patterns for hl-backup.ps1 (case-insensitive, used with --iexclude-file)
+
+# Temp + crash junk
+C:\Users\*\AppData\Local\Temp
+C:\Users\*\AppData\Local\CrashDumps
+C:\Users\*\AppData\Local\D3DSCache
+C:\Users\*\AppData\Local\Microsoft\Windows\INetCache
+C:\Users\*\AppData\Local\Microsoft\Windows\WebCache
+C:\Users\*\AppData\Local\Microsoft\Windows\Explorer\thumbcache_*
+C:\Users\*\AppData\Local\Microsoft\Windows\Explorer\iconcache_*
+
+# Re-downloadable: installers, package caches
+C:\Users\*\AppData\Local\Microsoft\WinGet\Packages
+C:\Users\*\AppData\Local\pip\cache
+C:\Users\*\AppData\Local\NVIDIA
+C:\Users\*\AppData\Local\AMD
+C:\Users\*\Downloads\*.iso
+
+# OneDrive: cloud-only files would get downloaded just to be backed up. OneDrive is its own backup.
+C:\Users\*\OneDrive*
+
+# Registry transaction logs (NTUSER.DAT itself IS backed up)
+C:\Users\*\ntuser.dat.LOG*
+C:\Users\*\NTUSER.DAT{*
+
+# Browser / Electron caches, anywhere
+Cache
+Cache_Data
+Code Cache
+GPUCache
+DawnCache
+DawnGraphiteCache
+DawnWebGPUCache
+GrShaderCache
+ShaderCache
+Service Worker\CacheStorage
+node_modules
+__pycache__
