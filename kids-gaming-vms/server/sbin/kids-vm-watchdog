@@ -4,7 +4,8 @@
 Runs every minute from a timer. For each VM that is Running:
 
   * ask how many people are attached (VNC + Sunshine, via PowerShell Direct)
-  * if nobody has been attached for IDLE_MINUTES, `Save-VM` it
+  * if nobody has been attached for IDLE_MINUTES, park it (`vmctl save`: Save-VM, or
+    Suspend-VM/Pause for a VM with a GPU partition, which Hyper-V refuses to save)
   * once the LAST VM is saved, release `keepawake` so the gaming-pc can sleep
 
 SAFETY: if we cannot determine the session count (`-1`), the VM is treated as IN USE and
@@ -101,16 +102,16 @@ def main() -> int:
             continue
 
         if DRY_RUN:
-            log(f"{vm}: DRY RUN — would Save-VM after {idle_min:.0f} min idle")
+            log(f"{vm}: DRY RUN — would park (save/pause) after {idle_min:.0f} min idle")
             running_after += 1
             continue
 
         rc, out = run("save", vm, timeout=180)
         if rc == 0:
-            log(f"{vm}: saved after {idle_min:.0f} min idle")
+            log(f"{vm}: {out.strip() or 'parked'} after {idle_min:.0f} min idle")
             state.pop(vm, None)
         else:
-            log(f"{vm}: save failed: {out[:120]}")
+            log(f"{vm}: save/pause failed: {out[:120]}")
             running_after += 1
 
     # Nothing left running -> let the gaming-pc sleep again. The gaming-pc's

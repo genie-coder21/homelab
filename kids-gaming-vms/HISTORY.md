@@ -320,6 +320,35 @@ non-elevated SSH user worked but **logged nothing**, because the log write was s
 silently. Users were given modify rights on that folder, and the installer in this repo
 now does that up front.
 
+## 2026-10-24: The GPU comes in after all, and a decision gets reversed in writing
+
+A month after deciding to keep the discrete GPU out of the VMs, the owner reversed it: the
+kids wanted bigger titles than software rendering could carry. The gaming-pc side built
+Hyper-V **GPU partitioning**: each VM is handed a capped slice of the host GPU, checkpoints
+are disabled (they are incompatible), and a host-side script copies the host's GPU driver
+package into the guest, which has to be repeated after every host driver update. The guest
+reports the real GPU, runs a WebGL stress test at full frame rate, and the in-guest
+streaming server switched to hardware encoding. The host's own display never flickered.
+
+**One hard rule surfaced immediately: a VM with a GPU partition cannot be saved.** Hyper-V
+refuses `Save-VM` outright, and the default automatic stop action (save) would fail the same
+way, so it was set to shut down. Pause and resume work. On the server that meant the idle
+watchdog and the one-tap wake path both had to change, and the change was made in **one**
+place: `vmctl save` now asks Hyper-V whether the VM has a partition and pauses it if so,
+saves it otherwise; `vmctl start` resumes a paused VM and starts anything else. Everything
+above it (launcher, wake relay, watchdog) calls those two commands, so nothing else moved,
+and a VM that gets a partition later picks up the new behaviour on its own. The watchdog's
+keep-awake logic already counted only *running* VMs, and a paused VM is not running, so the
+host still gets to sleep.
+
+The same day the VMs' virtual disks were enlarged (dynamic, so no host space is taken until
+used), and the small recovery partition that Windows places after the system volume was
+folded into it, because that partition otherwise blocks resizing the volume.
+
+Why keep the superseded "no GPU" reasoning in the README? For the same reason wrong theories
+were retracted on the board rather than deleted: the next reader should see that the
+trade-off was weighed, and what changed.
+
 ---
 
 ## What made this work

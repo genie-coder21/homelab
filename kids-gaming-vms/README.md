@@ -40,7 +40,7 @@ nobody is using them, and then the gaming-pc goes back to sleep.
 |---|---|---|
 | `server/launcher/launcher.py` | server, systemd service | The picker page plus plain-text endpoints. It wakes the gaming-pc if needed, resumes the VM, holds the host awake, waits until the guest answers, then hands the browser to Guacamole with a pre-signed one-connection token. |
 | `server/sbin/vmctl` | server | The one place where SSH-to-PowerShell happens: list/state/start/save/ip/sessions, host-up, wake, keepawake. It has a **stub mode** that simulates Hyper-V from a local JSON file. |
-| `server/sbin/kids-vm-watchdog` + timer | server, every minute | Counts real sessions inside each running VM. It saves a VM after 30 idle minutes and releases keepawake once the last VM is saved. |
+| `server/sbin/kids-vm-watchdog` + timer | server, every minute | Counts real sessions inside each running VM. It parks a VM after 30 idle minutes (saved, or paused if it has a GPU partition) and releases keepawake once the last VM is parked. |
 | `server/guacamole/compose.yaml` | server, Docker | Guacamole web app, guacd and Postgres. The `guacamole-auth-json` extension is enabled so the kids never see a login page. |
 | `server/sbin/guac-set-admin-password`, `guac-token` | server | Replace the shipped default admin password with a TPM-held one through the REST API. Build an auth-json token by hand for testing. |
 | `gaming-pc/keepawake/` | gaming-pc | `keepawake.ps1 -Mode on/off/status` starts and stops a SYSTEM scheduled task that holds a power request while VMs run. |
@@ -60,15 +60,25 @@ nobody is using them, and then the gaming-pc goes back to sleep.
 - **Compute on the GPU box, control plane on the always-on box.** The server is a 35 W mini
   PC with no PCIe slot. The gaming-pc has a 16-core CPU and plenty of RAM, but it sleeps.
   So the VMs live where the power is, and everything that has to be awake runs on the server.
-- **No GPU virtualisation.** The owner did not want the discrete GPU shared, and the CPU's
-  integrated Radeon graphics can't be partitioned (Hyper-V GPU-P effectively supports only
-  NVIDIA and Intel). Software rendering (WARP) with 4 vCPUs of a fast desktop CPU is
-  plenty for the target games. It also removes the fragile layer entirely: no guest
-  drivers that must match the host's exactly, and nothing breaks when the host's driver
-  updates. Sunshine uses software encoding.
+- **GPU partitioning, reversed after a month.** The first decision was *no* GPU
+  virtualisation: software rendering (WARP) on 4 vCPUs was enough for the original game
+  list, and it avoided a fragile layer of guest drivers that must match the host's. When the
+  kids wanted bigger titles, the owner changed their mind, and each VM now gets a **slice of
+  the host's discrete GPU through Hyper-V GPU partitioning**. A host-side script attaches the
+  partition and copies the host's GPU driver files into the guest; it **must be re-run after
+  every host GPU driver update**, which is the price of the fragile layer. The streaming
+  server in the guest now uses hardware encoding. (The integrated Radeon turned out to be
+  partitionable too, contrary to the earlier note here, but at two compute units it is not
+  worth using.)
+- **Saving a VM's state is unsupported with a GPU partition attached.** Hyper-V refuses it
+  outright. So the idle watchdog **pauses** such a VM instead of saving it (the RAM stays
+  allocated on the host, but a paused VM does not count as running, which is all the
+  keep-awake logic looks at), and the start path resumes a paused VM rather than starting
+  it. `vmctl` decides per call by asking Hyper-V whether the VM has a partition, so a VM
+  that gains one later needs no code change.
 - **On demand, not always on.** VMs are **saved** (Hyper-V's hibernate: RAM to disk, memory
-  returned to the host) when idle, and resumed in a few seconds. The host keeps its normal
-  sleep behaviour.
+  returned to the host) or, with a GPU partition, **paused** when idle, and resumed in a
+  few seconds. The host keeps its normal sleep behaviour.
 - **VNC, not RDP, for the browser path.** An RDP login takes over the console session that
   Sunshine streams, so the two would fight. VNC attaches to the same console desktop, so
   both paths coexist.
@@ -162,6 +172,9 @@ connection reuse (`ControlMaster`) saved only ~0.2 s.
   which contains no shell metacharacters.
 - Hyper-V's `State` comes back from `ConvertTo-Json` as an **enum number** (2 = Running,
   6 = Saved, 9 = Paused), not a name.
+- `Save-VM` **fails on a VM with a GPU partition** ("assigned one or more GPU partitions").
+  `Suspend-VM`/`Resume-VM` work. Also set the VM's automatic stop action to shut down, since
+  the default (save) cannot run either.
 - PowerShell's progress stream leaks into SSH output as CLIXML. Silence the progress
   preference, and do it **inside** PowerShell Direct script blocks too, because they have
   their own defaults.

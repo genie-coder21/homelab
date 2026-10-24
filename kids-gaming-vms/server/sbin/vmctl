@@ -181,13 +181,24 @@ def vm_start(name: str) -> tuple[bool, str]:
         d["vms"][name]["ip"] = d["vms"][name].get("ip") or "0.0.0.0"
         _stub_save(d)
         return True, "Running (stub)"
-    r = ps(f"Start-VM -Name '{name}' -ErrorAction Stop; 'ok'")
+    # A Paused VM (GPU partition, see vm_save) is resumed with Resume-VM; Off/Saved use Start-VM.
+    r = ps(f"if ((Get-VM -Name '{name}' -ErrorAction Stop).State -eq 'Paused') "
+           f"{{ Resume-VM -Name '{name}' -ErrorAction Stop }} "
+           f"else {{ Start-VM -Name '{name}' -ErrorAction Stop }}; 'ok'")
     return (r.returncode == 0), (r.stdout or r.stderr).strip()[:200]
 
 
 def vm_save(name: str) -> tuple[bool, str]:
-    """Save-VM is Hyper-V's hibernate: RAM to disk, memory returned to the host,
-    resumes in seconds. The equivalent of libvirt's managedsave."""
+    """Park an idle VM.
+
+    Save-VM is Hyper-V's hibernate: RAM to disk, memory returned to the host, resumes in
+    seconds. The equivalent of libvirt's managedsave.
+
+    EXCEPT for a VM with a GPU partition (Hyper-V GPU-P): Save-VM is refused ("assigned one
+    or more GPU partitions"), so those are Suspend-VM'd (Paused) instead. Paused keeps the
+    RAM allocated on the host but is not Running, which is all keepawake cares about.
+    Decided per call, so a VM that gains a partition later needs no edit here.
+    """
     if STUB:
         d = _stub_load()
         if name not in d["vms"]:
@@ -195,7 +206,9 @@ def vm_save(name: str) -> tuple[bool, str]:
         d["vms"][name]["state"] = "Saved"
         _stub_save(d)
         return True, "Saved (stub)"
-    r = ps(f"Save-VM -Name '{name}' -ErrorAction Stop; 'ok'")
+    r = ps(f"if (@(Get-VMGpuPartitionAdapter -VMName '{name}' -ErrorAction SilentlyContinue).Count -gt 0) "
+           f"{{ Suspend-VM -Name '{name}' -ErrorAction Stop; 'paused' }} "
+           f"else {{ Save-VM -Name '{name}' -ErrorAction Stop; 'saved' }}")
     return (r.returncode == 0), (r.stdout or r.stderr).strip()[:200]
 
 
@@ -296,7 +309,7 @@ USAGE = """vmctl - control the kids' VMs on the gaming-pc
   vmctl list                 all VMs and their state
   vmctl state <vm>           one VM's state
   vmctl start <vm>           start or resume
-  vmctl save  <vm>           save state, return the RAM to the host
+  vmctl save  <vm>           park it: Save-VM, or Suspend-VM (pause) if it has a GPU partition
   vmctl ip    <vm>           the guest's LAN address
   vmctl sessions <vm>        how many people are attached (-1 = cannot tell)
   vmctl host-up              is the gaming-pc reachable (exit 0 = yes)

@@ -293,3 +293,34 @@ so exact-text edits failed to match until it was accounted for. Separately, a ru
 to UFW's `after.rules` with a trailing `# comment` was rejected by `iptables-restore`.
 Comments in that file must go on their own lines.
 
+## 2026-10-24: Routine patching
+
+The front-door instance had unattended security upgrades running daily, which is why
+nothing urgent was outstanding. What *had* piled up was the rest: a few dozen regular
+bug-fix updates, a newer mesh-VPN client, and a kernel update waiting for the reboot that
+activates it. Automatic security upgrades do not reboot by themselves, so a reboot was
+scheduled. The standby instance got the same treatment.
+
+The procedure, worth writing down because it is the one to repeat:
+
+1. Confirm nobody is streaming (no media connections through the tunnel, only scanner
+   noise in the proxy logs).
+2. Full upgrade, autoremove and snap refresh, non-interactively and keeping existing config
+   files. One package was *phased* (Ubuntu's gradual rollout holds it back) and had to be
+   named explicitly.
+3. Turn off anything listening that nothing uses. An unused RPC service that nothing
+   depended on was disabled. One less daemon is one less thing to patch.
+4. Reboot. It came back in under a minute.
+5. After the reboot, check the things that could silently stay down: the saved firewall
+   rules were restored with the final reject rule in place, the tunnel re-handshaked, the
+   proxy served the media server's health endpoint through the tunnel and the public names
+   answered, the mesh-VPN node came up, and the CrowdSec agent and firewall bouncer were
+   active with their ban tables back. The home-side CrowdSec API showed the agent
+   heartbeating and the bouncer pulling.
+
+**One small trap:** right after boot, CrowdSec and its bouncer lag the tunnel by half a
+minute to a minute, and a check at that moment shows them "activating" and "inactive".
+Check again before fixing anything; they recover on their own once the tunnel is up.
+
+The audit found nothing else to change: SSH is key-only and certificates renew on a timer
+with plenty of margin.
