@@ -375,3 +375,34 @@ still carried a certificate from the affected CA.
 
 Tailscale's self-updater is now set to check and apply on both instances, so client
 security releases install between the regular patch rounds.
+
+## 2026-10-26: Subnet router moved to the new VPS
+
+The last service still anchored to the old front door was the Tailscale subnet router. The
+new VPS already had the client installed but signed out, and the home side had been
+prepared during the cutover build: a return route for the whole new tunnel subnet and
+firewall allowances for the dedicated rewrite address.
+
+**On the new VPS:** the same three pieces as before, pointed at the new tunnel. A source
+rewrite of tailnet traffic leaving through the tunnel to a dedicated tunnel address,
+forwarding rules between the Tailscale interface and the tunnel, the client's own subnet
+SNAT switched off, and the LAN plus the new tunnel subnet advertised as routes. All of it
+persisted with the rest of the firewall.
+
+**Sign-in without a shared password:** the client prints a one-time authorization link.
+It was opened from a device already signed into the tailnet account, so
+the node was authorised with two clicks and nothing was typed. The routes were then
+approved on the machine's page in the admin console.
+
+**Cutover:** the old VPS was told to stop advertising its routes. The tailnet made the new
+VPS primary for both routes within seconds, with no change on the client devices.
+
+**What went wrong:** the client's `up` command, run with only a hostname, silently
+discarded the route preferences that had been stored while signed out, so the admin
+console reported that the machine exposed no routes. Setting the routes again after
+sign-in fixed it; the lesson is to pass every preference on the `up` line or re-apply
+them afterwards.
+
+**Verified:** from the new VPS, a request bound to its own tailnet address reached a home service and the rewrite counter climbed. That test is valid here because the
+client's own SNAT is off, so the firewall rule applies to local traffic the same way it
+applies to forwarded traffic.

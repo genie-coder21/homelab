@@ -95,7 +95,9 @@ disables the firewall after a few minutes unless it is cancelled once access is 
 
 ### Tailscale through the VPS
 The home server is not itself a tailnet node; the VPS advertises the home LAN and tunnel
-subnets as a subnet router and forwards into WireGuard. Two non-obvious pieces:
+subnets as a subnet router and forwards into WireGuard. Since the move to the bigger
+instance, that role lives on the new VPS; the old one can take it back with one preference
+change on each side. Two non-obvious pieces:
 
 1. Traffic from tailnet devices is **SNATed to a dedicated tunnel address** (not the VPS's
    own). Without a rewrite, packets arrive at home from a CGNAT address home has no route
@@ -208,7 +210,8 @@ Cutover was a DNS change with a short TTL; rollback is the same change in revers
 old VPS and tunnel are kept untouched as a rollback path for a while before retirement.
 
 ### Retiring a front-door VPS (checklist)
-1. Move the Tailscale subnet router to the new VPS (needs an approval in the admin console).
+1. Move the Tailscale subnet router to the new VPS (needs a route approval in the admin
+   console; once the old node stops advertising, the tailnet fails over within seconds).
 2. **Delete every DNS record that still points at the old public IP before releasing it**:
    the provider will hand that IP to someone else, and a stale record becomes a subdomain
    takeover.
