@@ -105,6 +105,12 @@ subnets as a subnet router and forwards into WireGuard. Two non-obvious pieces:
    the VPS's own address before your rule runs, and home treats your phone as the
    restricted VPS.
 
+Keep the client current: Tailscale's self-updater is set to check **and** apply on the VPS
+(it is off by default on Linux), so security releases land between the regular patch rounds.
+To confirm, compare the running daemon version from the status output with the newest
+stable release on Tailscale's package site; the CLI and daemon versions can differ until
+the service restarts.
+
 ### Mail: a relay at the edge, the alias service at home
 
 The domain's email had been handled by a hosted forwarding service. Incoming mail reached the

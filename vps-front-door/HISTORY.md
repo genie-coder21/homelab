@@ -362,3 +362,16 @@ issues a secure-only session cookie when its configured URL is https.
 tunnel and forwarded; a relay attempt for a foreign domain was turned away; STARTTLS shows
 the real certificate; and the web login page answers over HTTPS through the proxy.
 
+
+## 2026-10-26: Tailscale patch check
+
+A Tailscale security bulletin about a distrusted certificate authority prompted a check of
+both front-door instances against the current stable release.
+
+**Result:** nothing to install. The recent routine patching run had already brought both to
+the required release; the running daemon version was confirmed separately from the CLI
+version, since the two can differ until the service restarts, and neither OS trust store
+still carried a certificate from the affected CA.
+
+Tailscale's self-updater is now set to check and apply on both instances, so client
+security releases install between the regular patch rounds.
