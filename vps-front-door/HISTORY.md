@@ -324,3 +324,41 @@ Check again before fixing anything; they recover on their own once the tunnel is
 
 The audit found nothing else to change: SSH is key-only and certificates renew on a timer
 with plenty of margin.
+
+---
+
+## 2026-10-26: Self-hosted email aliases, with the VPS as the mail exchanger
+
+The alias service had gone with the home server's old system disk, and since the rebuild
+the domain's mail had been handled by a hosted forwarding service. That is a one-way
+arrangement: replies leave from the personal inbox rather than from the alias. Bringing it
+back took three pieces.
+
+**At home:** the alias service in Compose (web app, SMTP handler, background job runner and
+a Postgres database), a fresh DKIM keypair, registration disabled, a single admin account,
+and the domain's aliases recreated. The home firewall gained two per-port allows from the
+VPS's tunnel address, one for the SMTP handler and one for the web UI.
+
+**On the VPS:** Postfix as the mail exchanger, holding nothing. The domain is a relay domain
+with a transport map pointing down the tunnel; the tunnel network is trusted to relay
+outward; and everything bound for the internet is submitted to an authenticated external
+relay, because the cloud provider blocks outbound SMTP on the standard port. A
+per-destination TLS policy requires encryption on that relay leg. Inbound STARTTLS carries a
+Let's Encrypt certificate, and a certbot deploy hook reloads Postfix after each renewal. The
+host firewall now accepts inbound mail alongside web and tunnel traffic. The alias service's
+web UI became another reverse-proxied hostname with HTTPS from certbot.
+
+**In DNS:** the forwarding service was switched off and its records removed, the MX now
+names the VPS, and SPF, DKIM and DMARC records were published for the domain.
+
+**What went wrong along the way:** the app's own migration command did not work in a recent
+release, so the migration tool was run directly and the init script afterwards; the DKIM
+signer stays silent and signs nothing when given a PKCS#8 key, and wants the traditional
+PKCS#1 encoding instead; Compose rejected the env file over an unquoted value that contained
+a space; and the web login seemed broken until it was tried over https, since the app
+issues a secure-only session cookie when its configured URL is https.
+
+**Verified:** a message sent from outside was accepted by the exchanger, carried down the
+tunnel and forwarded; a relay attempt for a foreign domain was turned away; STARTTLS shows
+the real certificate; and the web login page answers over HTTPS through the proxy.
+

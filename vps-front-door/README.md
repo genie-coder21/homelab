@@ -105,6 +105,32 @@ subnets as a subnet router and forwards into WireGuard. Two non-obvious pieces:
    the VPS's own address before your rule runs, and home treats your phone as the
    restricted VPS.
 
+### Mail: a relay at the edge, the alias service at home
+
+The domain's email had been handled by a hosted forwarding service. Incoming mail reached the
+personal inbox, but any reply left from that inbox, not from the alias. A self-hosted
+email-alias service fixes that, and it is deployed like every other web service here: it
+runs at home, and the VPS is the only thing the internet talks to.
+
+- **Inbound.** Postfix on the VPS is the domain's mail exchanger. It keeps no mail: the
+  domain is configured as a relay domain, and a transport map passes each message down the
+  WireGuard tunnel to the alias service's SMTP handler. Inbound STARTTLS uses a Let's Encrypt
+  certificate renewed by the same certbot timer as the web names, with a deploy hook that
+  reloads Postfix. Only the tunnel network and the domain itself may relay; anything else is
+  refused.
+- **Outbound.** The cloud provider blocks outgoing SMTP on the standard port, so the VPS
+  cannot deliver to the world by itself. Mail from the alias service travels back up the
+  tunnel to Postfix, which submits it to an authenticated external relay on the submission
+  port. A per-destination TLS policy requires encryption on the relay leg; the tunnel legs
+  need none of their own, since the tunnel is already encrypted.
+- **Receiver-side authentication.** SPF, DKIM (signed by the alias service) and DMARC are
+  published for the domain.
+- **The web UI** is one more reverse-proxied name on the VPS, with the forwarded-protocol
+  header set. The app marks its session cookie secure-only when configured with an https
+  URL, so testing it over plain http through the tunnel looks like a broken login and isn't.
+- **Home firewall.** Two more per-port allows from the VPS's tunnel address (the SMTP
+  handler and the web UI), following the same per-source, per-port pattern as the rest.
+
 ### Key-only SSH, management over the tunnel
 Both machines use public-key-only SSH with root login disabled and a short auth window,
 set in a drop-in rather than the main config (`templates/sshd-hardening.conf.example`).
@@ -186,6 +212,13 @@ old VPS and tunnel are kept untouched as a rollback path for a while before reti
 5. Delete the instance and its boot-volume backup.
 
 ## Traps and lessons
+
+- **Self-hosted alias service, three things that cost time:** the app's bundled migration
+  wrapper did not work in a recent release, so migrations went through the migration tool
+  directly, followed by the app's own init script; the DKIM library needs the private key in
+  the traditional PKCS#1 encoding and fails without a word when handed PKCS#8; and Compose
+  refuses an env file if a value contains a space and is not quoted, which hides nicely in a
+  display-name setting.
 
 - **A tunnel can be "up" and carry nothing.** NetworkManager adopted the `wg-quick`
   interface as an assumed connection and later "disconnected" it, which flushed the
