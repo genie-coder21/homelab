@@ -1,0 +1,7 @@
+# /etc/mailhold/mailhold.conf
+# mode: dryrun = log + keep a copy, still deliver; hold = keep, do not deliver
+[mailhold]
+mode = dryrun
+mailbox = <MAILBOX_ADDRESS>
+hold_dir = /var/lib/mailhold
+digest_from = Mail hold <mailhold@example.org>

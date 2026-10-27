@@ -49,6 +49,7 @@ Tokens live in the server's TPM-bound secret store (see `../secrets-and-hardenin
 | `scripts/ntfy-server/` | server | compose file and `server.yml` for the ntfy container |
 | `scripts/server/hl-notify` | server | one-line publisher for any script. It **always exits 0**, so a dead hub can never fail the job that called it, and it logs dropped messages to the journal |
 | `scripts/server/hl-watchdog` + `.timer` | server | health checks every 5 min (below) |
+| `scripts/server/hl-mailquota` + `.service` / `.timer` | server | every 5 min: counts the mail VPS's relayed sends in the last 24 h over SSH and publishes the first crossing of 50 / 75 / 90 / 98 % of the relay's daily allowance each day, plus one line each morning with yesterday's total |
 | `scripts/server/hl-notify-flush` | server | the older local fallback: queued backup results become desktop popups at the next graphical login |
 | `scripts/windows/ntfy-subscriber.ps1` | gaming-pc | streams the topics and raises native Windows toasts |
 | `scripts/windows/send-ntfy.ps1` | gaming-pc | publishes from Windows (JSON, UTF-8 safe) |

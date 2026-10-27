@@ -5,3 +5,5 @@
 *.pem
 *.log
 kids.json
+__pycache__/
+*.pyc

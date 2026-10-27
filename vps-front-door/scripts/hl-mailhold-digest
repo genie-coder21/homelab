@@ -1,0 +1,55 @@
+#!/usr/bin/python3 -I
+"""hl-mailhold-digest: one mail a day listing what the hold filter kept back (or, in dry-run mode, what it
+would have kept back). Run by mailhold-digest.timer in the evening. Sends nothing when nothing was held.
+Usage: digest.py [YYYY-MM-DD]   (default: today)
+"""
+from __future__ import annotations
+
+import configparser
+import datetime as dt
+import json
+import subprocess
+import sys
+from collections import Counter
+from email.message import EmailMessage
+from pathlib import Path
+
+CONF = Path("/etc/mailhold/mailhold.conf")
+
+
+def main(argv: list[str]) -> int:
+    cp = configparser.ConfigParser()
+    cp.read(CONF)
+    c = cp["mailhold"]
+    day = argv[0] if argv else dt.date.today().isoformat()
+    log = Path(c.get("hold_dir", "/var/lib/mailhold")) / "log" / f"{day}.jsonl"
+    rows = [json.loads(line) for line in log.read_text().splitlines() if line.strip()] if log.exists() else []
+    held = [r for r in rows if r.get("decision") == "hold"]
+    if not held:
+        print(f"{day}: nothing held ({len(rows)} forwards seen)")
+        return 0
+    dry = any(r.get("mode") == "dryrun" for r in held)
+    kinds = Counter(r.get("kind") for r in held)
+    passes = Counter((r.get("kind") or r.get("reason", "").split(":")[0]) for r in rows if r.get("decision") == "pass")
+    lines = [f"{'Would have held' if dry else 'Held'} {len(held)} of {len(rows)} forwards on {day}"
+             f" ({', '.join(f'{v} {k}' for k, v in kinds.most_common())}).",
+             "Dry run: every one of these was still delivered to you." if dry else
+             "These were not delivered; the originals are kept on the mail server.",
+             ""]
+    for r in held:
+        t = r["ts"][11:16]
+        lines.append(f"{t}  {r.get('kind', ''):12}  {r.get('from', '')[:38]:38}  {r.get('subject', '')[:90]}")
+    lines += ["", f"Passed through: {len(rows) - len(held)} "
+              f"({', '.join(f'{v} {k}' for k, v in passes.most_common(6))})."]
+    msg = EmailMessage()
+    msg["From"] = c.get("digest_from", "Mail hold <mailhold@example.org>")
+    msg["To"] = c["mailbox"]
+    msg["Subject"] = f"Held mail {day}: {len(held)}{' (dry run)' if dry else ''}"
+    msg.set_content("\n".join(lines))
+    p = subprocess.run(["/usr/sbin/sendmail", "-i", "-t"], input=bytes(msg), capture_output=True)
+    print(f"{day}: digest sent, {len(held)} held, sendmail rc={p.returncode}")
+    return p.returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

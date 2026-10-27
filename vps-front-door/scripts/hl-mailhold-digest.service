@@ -1,0 +1,7 @@
+[Unit]
+Description=mailhold: daily digest of held forwards
+
+[Service]
+Type=oneshot
+User=mailhold
+ExecStart=/usr/local/lib/mailhold/hl-mailhold-digest

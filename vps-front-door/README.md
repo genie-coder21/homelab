@@ -138,6 +138,24 @@ runs at home, and the VPS is the only thing the internet talks to.
   URL, so testing it over plain http through the tunnel looks like a broken login and isn't.
 - **Home firewall.** Two more per-port allows from the VPS's tunnel address (the SMTP
   handler and the web UI), following the same per-source, per-port pattern as the rest.
+- **Header rewrite on the relay leg.** The external relay rewrites `From` to the account
+  that authenticates, and the mailbox's reply then goes to the `To`. So Postfix rewrites
+  each forward on the way out: the real sender is shown inside the display name, the
+  alias service's reply address is put into `To`, and the alias the mail arrived on is kept
+  in a side header. The `To` rule must match every shape of `To` line (bare address, a
+  display name with brackets, several addresses). When it only matched the bare form, mail
+  from senders who write a display name kept its original `To` beside the new one, and the
+  relay rejected it for carrying two `To` headers.
+- **Hold filter for notification noise.** The mailbox copy of each forward passes through a
+  small Postfix pipe filter, selected by a `FILTER` action on the mailbox recipient. It holds
+  only mail that is all of: an alias-service forward; from a no-reply or notification
+  sender; free of anything a person would act on (a question, a request to reply,
+  scheduling); and a one-time code or a "we received your message"
+  acknowledgement. Everything else is re-injected with the local sendmail, which does not
+  pass through the SMTP restrictions again, so there is no loop. It fails open: any error
+  passes the mail, and a failed re-injection asks Postfix to retry. Held mail is kept on disk
+  with a JSON decision log, and one digest a day lists what was held. A dry-run mode logs and
+  keeps copies but still delivers, which is how it runs for its first days.
 
 ### Key-only SSH, management over the tunnel
 Both machines use public-key-only SSH with root login disabled and a short auth window,
@@ -272,6 +290,7 @@ old VPS and tunnel are kept untouched as a rollback path for a while before reti
 | `scripts/wg-quick-override.conf` | `Restart=on-failure` drop-in for `wg-quick@` |
 | `scripts/hl-a1-hunt` + `.service` / `.timer` | A1 capacity hunter |
 | `scripts/hl-oci` | OCI CLI wrapper with per-call ephemeral key |
+| `scripts/hl-mailhold-digest`, `hl-mailhold.conf.example`, `hl-mailhold-digest.service` / `.timer` | daily digest for the hold filter (the filter itself is described above and stays site-specific) |
 | `templates/` | placeholder-only examples: WireGuard (both ends), proxy site, CrowdSec agent/bouncer/acquisition/whitelist, DOCKER-USER rules, NAT rule for the subnet router, SSH hardening |
 
 Everything in `templates/` uses `<PLACEHOLDER>` tokens and RFC 5737 / documentation-range

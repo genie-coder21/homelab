@@ -1,0 +1,93 @@
+#!/usr/bin/python3 -I
+"""hl-mailquota: watch how much of the mail relay's daily allowance the mail VPS has used.
+
+Every forward to the owner's mailbox leaves the VPS through the authenticated relay (the cloud provider blocks port 25), and
+the relay has a daily sending allowance. This reads the VPS mail log over SSH,
+counts `status=sent` deliveries via the relay in the last 24 hours and pushes an ntfy alert the
+first time each day the count crosses 50 / 75 / 90 / 98 % of the limit. Around 08:00 it also sends one
+line with yesterday's total. State: /var/lib/hl-mailquota/state.json. Run by hl-mailquota.timer.
+"""
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.request
+from pathlib import Path
+
+# ---- CONFIG ----
+VPS = "vps"            # ssh alias of the VPS
+LIMIT = 100            # your relay's daily allowance
+STEPS = (50, 75, 90, 98)
+NTFY = "http://<NTFY_HOST>:<NTFY_PORT>"
+TOPIC = "<TOPIC>"
+STATE = Path(os.environ.get("STATE_DIRECTORY", "/var/lib/hl-mailquota")) / "state.json"
+# ----------------
+TS = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?([+-]\d\d:\d\d)")
+
+
+def sent_times() -> list[dt.datetime]:
+    # the VPS account may run only this log read under sudo (scoped sudoers rule)
+    cmd = ("sudo cat /var/log/mail.log.1 /var/log/mail.log 2>/dev/null | "
+           "grep -F 'relay=<RELAY_HOST>' | grep -F 'status=sent' | cut -d' ' -f1")
+    out = subprocess.run(["ssh", "-o", "ConnectTimeout=20", "-o", "BatchMode=yes", VPS, cmd],
+                         capture_output=True, text=True, timeout=90)
+    if out.returncode:
+        raise RuntimeError(f"ssh/grep failed rc={out.returncode}: {out.stderr.strip()[:200]}")
+    times = []
+    for line in out.stdout.splitlines():
+        if m := TS.match(line):
+            times.append(dt.datetime.fromisoformat(m.group(1) + m.group(2)))
+    return times
+
+
+def notify(title: str, message: str, priority: int = 3, tags: list[str] | None = None) -> None:
+    token = ""
+    cred = Path(os.environ.get("CREDENTIALS_DIRECTORY", "")) / "<NTFY_TOKEN_CREDENTIAL>"
+    if cred.is_file():
+        token = cred.read_text().strip()
+    body = json.dumps({"topic": TOPIC, "title": title, "message": message, "priority": priority,
+                       "tags": tags or ["email"]}).encode()
+    req = urllib.request.Request(NTFY, data=body, headers={"Content-Type": "application/json",
+                                                         **({"Authorization": f"Bearer {token}"} if token else {})})
+    urllib.request.urlopen(req, timeout=10).read()
+
+
+def main() -> int:
+    now = dt.datetime.now().astimezone()
+    today = now.date().isoformat()
+    state = json.loads(STATE.read_text()) if STATE.exists() else {}
+    if state.get("day") != today:
+        state = {"day": today, "fired": [], "morning": state.get("morning", "")}
+    times = sent_times()
+    rolling = sum(1 for t in times if t >= now - dt.timedelta(hours=24))
+    pct = rolling * 100 // LIMIT
+    yesterday = (now.date() - dt.timedelta(days=1)).isoformat()
+    y_count = sum(1 for t in times if t.astimezone().date().isoformat() == yesterday)
+    t_count = sum(1 for t in times if t.astimezone().date().isoformat() == today)
+    print(f"{now:%H:%M} rolling24h={rolling} ({pct}%) today={t_count} yesterday={y_count} fired={state['fired']}")
+    for step in STEPS:
+        if pct >= step and step not in state["fired"]:
+            prio = 5 if step >= 98 else 4 if step >= 90 else 3
+            notify(f"Mail relay at {step}%", f"{rolling} of {LIMIT} forwards in the last 24 h. "
+                   f"Above the limit the relay defers the rest until the window clears (nothing is lost).", prio,
+                   ["email", "warning" if step >= 90 else "chart_with_upwards_trend"])
+            state["fired"].append(step)
+    if now.hour == 8 and state.get("morning") != today:
+        notify("Mail forwards, daily", f"Yesterday {y_count} forwards went through the relay "
+               f"(limit {LIMIT}/24 h). Right now the rolling count is {rolling}.", 2, ["email"])
+        state["morning"] = today
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(state))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception as e:  # noqa: BLE001
+        print(f"hl-mailquota: {type(e).__name__}: {e}", file=sys.stderr)
+        sys.exit(1)

@@ -1,0 +1,9 @@
+[Unit]
+Description=mailhold digest at 20:00 local time
+
+[Timer]
+OnCalendar=*-*-* 20:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

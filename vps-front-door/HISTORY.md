@@ -406,3 +406,41 @@ them afterwards.
 **Verified:** from the new VPS, a request bound to its own tailnet address reached a home service and the rewrite counter climbed. That test is valid here because the
 client's own SNAT is off, so the firewall rule applies to local traffic the same way it
 applies to forwarded traffic.
+
+## 2026-10-27: two To headers, and a hold filter for notification mail
+
+**The bounce.** A day after the alias service went live, the mailbox started receiving
+"could not be delivered" notices for a handful of forwards, several of them from a social
+network's notification sender. The relay log showed the relay refusing them as not
+RFC 5322 compliant: two `To` headers. The outbound header rewrite prepends a `To` with the
+alias service's reply address and replaces the original `To` that names the alias. The
+replace rule only matched a bare address. Senders who write a display name in `To` slipped
+past it, so their original `To` survived next to the new one. The rule now matches any
+`To` line that contains an address at the domain. It was checked with Postfix's own table
+lookup against bare, display-name and multi-address forms before the reload, and the lost
+mails were re-injected from a local copy and delivered.
+
+A smaller trap on the way: editing the regex table through a remote shell inside a
+double-quoted heredoc produced a file that looked right but never matched. Copying the file
+over with scp fixed it. Test a table with the lookup tool, not by eye.
+
+**The hold filter.** The address collects a lot of automated mail: one-time codes that have
+already served their purpose by the time they reach the mailbox, and "we received your message" acknowledgements. Each one
+counted against the external relay's daily allowance and buried real mail. The fix is a
+Postfix pipe content filter on the mailbox copy only, selected by a `FILTER` action on the
+mailbox recipient, placed first in the recipient restrictions (a `permit` earlier in the
+list would end evaluation before the filter was chosen). Only the mailbox copy is filtered; the copy kept by the alias
+service's own store is routed by the transport map and is untouched.
+
+The filter is deliberately conservative. It holds nothing unless the mail is an
+alias-service forward from a no-reply or notification sender, contains no wording a person
+would act on, and is a one-time code or an acknowledgement. Any error passes the mail
+through, and a failed re-injection returns the temporary-failure code so Postfix retries.
+It was run offline against three days of stored mail first, then with test forwards through
+the SMTP port, and it starts in a dry-run mode that logs and keeps copies but still
+delivers, with a daily digest of what it would have held.
+
+One more thing the live test caught: a forward whose `To` carries no alias at all (the
+alias was only in Cc or Bcc) would still get a second `To` from the prepend rule. The filter
+now sets such a `To` to the reply address itself before re-injecting, keeping the original
+in a side header.

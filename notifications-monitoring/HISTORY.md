@@ -125,3 +125,15 @@ For this repository:
 - Every site-specific value moved to a clearly marked config block at the top of each script.
 - `hl-notify` was rewritten to publish JSON, applying the 2026-10-07 lesson.
 - The token lookup now prefers a systemd credential when the caller is a unit.
+
+## 2026-10-27: relay-quota alerts
+
+The VPS front door forwards the domain's mail to the owner's mailbox through an
+authenticated external relay with a daily sending allowance. Once the relay was the only
+way out, running into that allowance would silently defer mail until the next day, and
+nothing would say so. A small timer on the server now reads the VPS mail log over SSH every
+five minutes, counts successful relay deliveries in the rolling 24 hours, and publishes an
+ntfy message the first time each day the count crosses 50, 75, 90 and 98 percent of the
+allowance, with the priority rising at the top two steps. Around eight in the morning it
+also publishes one line with the previous day's total. The token is a systemd credential,
+and state (which steps fired today) lives in the unit's state directory.

@@ -1,0 +1,10 @@
+[Unit]
+Description=hl-mailquota: mail relay usage check (ntfy at 50/75/90/98%)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=<USER>
+StateDirectory=hl-mailquota
+LoadCredentialEncrypted=<NTFY_TOKEN_CREDENTIAL>:/etc/credstore.encrypted/<NTFY_TOKEN_CREDENTIAL>
+ExecStart=/usr/local/sbin/hl-mailquota
