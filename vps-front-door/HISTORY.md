@@ -486,3 +486,12 @@ forwards only mail addressed to the owner's own aliases and a wrongly delivered 
 is cheaper than a lost one. Lesson: test the delivery path with a real third-party message,
 not a hand-written one.
 
+The next real forward exposed the other half of the display-name change: a sender with
+no display name at all arrived as the bare alias address, because the alias service's
+"name only" format has no fallback. A one-line patch to the alias service (fall back to
+"local at domain" when the name is empty) is bind-mounted over the shipped file, so it
+survives container recreation and is easy to re-apply after an image bump. One trap on
+the way: the service inherited its mounts from a shared YAML anchor, and adding a
+per-service `volumes:` list replaced the inherited one instead of extending it, which
+took the handler down for a minute until the mount was moved into the anchor.
+
