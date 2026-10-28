@@ -20,8 +20,10 @@ import uuid
 from pathlib import Path
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
+# neverMarkSpam=true: an imported message carries no sending IP, so the mailbox's classifier filed the first real
+# forward as spam. The alias service forwards only the owner's own aliases, so skip the spam decision for imports.
 IMPORT_URL = ("https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/import"
-              "?uploadType=multipart&internalDateSource=dateHeader")
+              "?uploadType=multipart&internalDateSource=dateHeader&neverMarkSpam=true")
 SCOPE = "https://www.googleapis.com/auth/gmail.insert"
 TIMEOUT = 30
 

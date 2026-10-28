@@ -476,3 +476,13 @@ A third test showed the sender's name, landed in the inbox and passed DKIM. A ba
 message with no sending chain went to spam, which confirmed the provider's spam check
 still runs on imported mail. Open point: a sender with no display name now shows as the
 bare alias address; acceptable so far, revisit if it is common.
+
+Later the same morning the first real forward through the import landed in the spam
+folder: an imported message carries no sending IP, so the mailbox's classifier had nothing
+to trust and filed it on similarity alone. The hand-made tests had passed because they
+looked nothing like bulk mail. The import call has a flag that tells the mailbox to skip
+its spam decision for that message; it is now set, on the grounds that the alias service
+forwards only mail addressed to the owner's own aliases and a wrongly delivered message
+is cheaper than a lost one. Lesson: test the delivery path with a real third-party message,
+not a hand-written one.
+
