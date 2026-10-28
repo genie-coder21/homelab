@@ -1,0 +1,77 @@
+#!/usr/bin/python3 -I
+"""One-time Gmail API authorization for the hold filter's Gmail API delivery (run as root on the mail VPS).
+
+  hl-mailhold-auth url      reads client_id and client_secret (two lines) on stdin, stores them, prints the consent URL
+  hl-mailhold-auth finish   reads the redirect URL (or bare code) on stdin, exchanges it, stores the refresh token
+
+The consent page redirects to a loopback URL on the machine running the browser; a one-shot listener
+there catches the code (or copy the final URL from the address bar and paste it to `finish`).
+Writes <oauth file> from hl-mailhold.conf (gmail_oauth), owner mailhold, mode 0600.
+"""
+from __future__ import annotations
+
+import configparser
+import json
+import os
+import pwd
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from hl_gmail_import import SCOPE, TOKEN_URL  # noqa: E402
+
+REDIRECT = "http://127.0.0.1:<LOOPBACK_PORT>/mailhold"  # Desktop-type clients accept any loopback port  # one-shot listener on the browser machine catches the code
+
+
+def oauth_path() -> Path:
+    cp = configparser.ConfigParser()
+    cp.read("/etc/mailhold/mailhold.conf")
+    return Path(cp["mailhold"]["gmail_oauth"])  # <OAUTH_FILE>, see hl-mailhold.conf.example
+
+
+def save(p: Path, data: dict) -> None:
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data))
+    pw = pwd.getpwnam("mailhold")
+    os.chown(tmp, pw.pw_uid, pw.pw_gid)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, p)
+
+
+def main(argv: list[str]) -> int:
+    p = oauth_path()
+    if argv[:1] == ["url"]:
+        cid, secret = (line.strip() for line in sys.stdin.read().splitlines()[:2])
+        save(p, {"client_id": cid, "client_secret": secret})
+        q = {"client_id": cid, "redirect_uri": REDIRECT, "response_type": "code", "scope": SCOPE,
+             "access_type": "offline", "prompt": "consent"}
+        print("https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(q))
+        return 0
+    if argv[:1] == ["finish"]:
+        text = sys.stdin.read().strip()
+        code = urllib.parse.parse_qs(urllib.parse.urlsplit(text).query).get("code", [text])[0] if "://" in text else text
+        creds = json.loads(p.read_text())
+        data = urllib.parse.urlencode({"client_id": creds["client_id"], "client_secret": creds["client_secret"],
+                                       "code": code, "redirect_uri": REDIRECT, "grant_type": "authorization_code"}).encode()
+        try:
+            with urllib.request.urlopen(urllib.request.Request(TOKEN_URL, data=data), timeout=30) as r:
+                tok = json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            print(f"token exchange HTTP {e.code}: {e.read().decode(errors='replace')[:400]}", file=sys.stderr)
+            return 1
+        if "refresh_token" not in tok:
+            print("no refresh_token in response (scopes: %s)" % tok.get("scope"), file=sys.stderr)
+            return 1
+        creds["refresh_token"] = tok["refresh_token"]
+        save(p, creds)
+        print(f"stored refresh token in {p}; scope={tok.get('scope')}")
+        return 0
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -137,3 +137,11 @@ ntfy message the first time each day the count crosses 50, 75, 90 and 98 percent
 allowance, with the priority rising at the top two steps. Around eight in the morning it
 also publishes one line with the previous day's total. The token is a systemd credential,
 and state (which steps fired today) lives in the unit's state directory.
+
+## 2026-10-28: fallback alert for the mail import
+
+The mail VPS now puts the mailbox copy of each forward into the mailbox through the
+provider's API and only uses the SMTP relay when that fails. The relay-quota timer reads
+the filter's fallback log over the same SSH hop and sends one alert per new batch of
+fallbacks, with the last error text, since a lapsed token is the likely cause and needs a
+person to re-authorize.

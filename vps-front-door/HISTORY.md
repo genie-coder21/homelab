@@ -444,3 +444,35 @@ One more thing the live test caught: a forward whose `To` carries no alias at al
 alias was only in Cc or Bcc) would still get a second `To` from the prepend rule. The filter
 now sets such a `To` to the reply address itself before re-injecting, keeping the original
 in a side header.
+
+## 2026-10-28: forwards show the real sender again
+
+**Problem.** Every forwarded mail showed up in the owner's mailbox as "me". The mailbox
+provider's SMTP relay, the only outbound path from the VPS, replaces From with the account
+owner and there is no mailbox setting that undoes it.
+
+**Approach.** Stop relaying the mailbox copy and import it with the provider's API instead.
+The hold filter already sits in front of that one recipient, so it grew an `import` step:
+on success the message is in the mailbox with its headers intact; on any failure it is
+re-injected and goes through the relay as before, and the failure is logged so the
+monitoring timer can raise an alert. A small helper does the one-time OAuth authorization
+(consent URL in, redirect URL back) and stores the refresh token in a file only
+the filter's user can read. The API import also lifts the relay's daily allowance off ordinary
+forwards; the relay now carries only replies and the fallback.
+
+**What broke.** Three things, each found by sending a test through the real path and
+reading the raw message in the mailbox. (1) The provider's OAuth redirect lands on the loopback of the
+machine running the browser, which was not the server, so the code had to be pasted by
+hand; the first code expired before it was pasted. (2) The imported mail showed the bare
+alias address instead of the sender's name: the earlier From rewrite had put the real
+address inside the display name, and the mailbox hides any display name that contains an
+address. (3) The same rewrite had been breaking the alias service's DKIM signature all
+along; the relay used to re-sign everything, so nobody noticed until the import exposed
+`dkim=fail`.
+
+**Fix.** Dropped the From rewrite on the VPS (empty header table kept so the main config
+is unchanged) and switched the alias service to its built-in "name only" sender format.
+A third test showed the sender's name, landed in the inbox and passed DKIM. A bare test
+message with no sending chain went to spam, which confirmed the provider's spam check
+still runs on imported mail. Open point: a sender with no display name now shows as the
+bare alias address; acceptable so far, revisit if it is common.

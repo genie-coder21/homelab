@@ -279,6 +279,17 @@ old VPS and tunnel are kept untouched as a rollback path for a while before reti
   instance (or use "replace boot volume"), let cloud-init inject a new key, copy configs
   and certificates off, then move the disk back. Delete the helper and its volume
   afterwards so it doesn't eat the free storage allowance.
+- **A relay that rewrites From makes every forward "from me".** The way out is the mailbox
+  provider's import API: the filter hands the message to the provider directly, headers intact, scanned and classified like normal delivery, and it does not
+  count against the relay's daily allowance. The relay stays as the fallback. The OAuth
+  app needs to be *published* ("In production") before you authorize, or the refresh token
+  is a seven-day testing token; publishing is greyed out until the consent-screen branding is
+  complete, with no hint saying so. The scope to ask for is
+  the insert-only one ("add emails to your mailbox"): it can neither read nor send.
+- **The mailbox hides a display name that contains an email address** (anti-spoofing) and shows
+  the bare address instead, so a "Name (real@address)" rewrite backfires once the headers
+  survive. And any header rewrite after the alias service has signed the message breaks
+  its DKIM signature; change the alias service's sender format (name only) instead.
 - **Measure each leg separately** (home uplink direct, home to VPS through the tunnel, VPS to
   internet) before blaming the backend services.
 
@@ -291,6 +302,7 @@ old VPS and tunnel are kept untouched as a rollback path for a while before reti
 | `scripts/hl-a1-hunt` + `.service` / `.timer` | A1 capacity hunter |
 | `scripts/hl-oci` | OCI CLI wrapper with per-call ephemeral key |
 | `scripts/hl-mailhold-digest`, `hl-mailhold.conf.example`, `hl-mailhold-digest.service` / `.timer` | daily digest for the hold filter (the filter itself is described above and stays site-specific) |
+| `scripts/hl_gmail_import.py`, `scripts/hl-mailhold-auth` | Gmail API import module the hold filter calls for the mailbox copy (headers kept, no relay quota) and the one-time OAuth authorization helper |
 | `templates/` | placeholder-only examples: WireGuard (both ends), proxy site, CrowdSec agent/bouncer/acquisition/whitelist, DOCKER-USER rules, NAT rule for the subnet router, SSH hardening |
 
 Everything in `templates/` uses `<PLACEHOLDER>` tokens and RFC 5737 / documentation-range

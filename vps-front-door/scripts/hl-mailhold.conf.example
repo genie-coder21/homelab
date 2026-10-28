@@ -5,3 +5,6 @@ mode = dryrun
 mailbox = <MAILBOX_ADDRESS>
 hold_dir = /var/lib/mailhold
 digest_from = Mail hold <mailhold@example.org>
+# gmail_api: on = import the mailbox copy with the mailbox provider's API (hl_gmail_import.py); off = relay as before
+gmail_api = off
+gmail_oauth = <OAUTH_FILE>

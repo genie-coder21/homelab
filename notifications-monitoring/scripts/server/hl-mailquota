@@ -5,7 +5,8 @@ Every forward to the owner's mailbox leaves the VPS through the authenticated re
 the relay has a daily sending allowance. This reads the VPS mail log over SSH,
 counts `status=sent` deliveries via the relay in the last 24 hours and pushes an ntfy alert the
 first time each day the count crosses 50 / 75 / 90 / 98 % of the limit. Around 08:00 it also sends one
-line with yesterday's total. State: /var/lib/hl-mailquota/state.json. Run by hl-mailquota.timer.
+line with yesterday's total. It also tails the mail filter's gmailapi-fallback.log and alerts when forwards
+start falling back from the Gmail API import to the relay (the sign that the API token has lapsed). State: /var/lib/hl-mailquota/state.json. Run by hl-mailquota.timer.
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ TS = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?([+-]\d\d:\d\d)")
 
 
 def sent_times() -> list[dt.datetime]:
-    # the VPS account may run only this log read under sudo (scoped sudoers rule)
+    # the VPS account may run only these two reads under sudo (scoped sudoers rule)
     cmd = ("sudo cat /var/log/mail.log.1 /var/log/mail.log 2>/dev/null | "
            "grep -F 'relay=<RELAY_HOST>' | grep -F 'status=sent' | cut -d' ' -f1")
     out = subprocess.run(["ssh", "-o", "ConnectTimeout=20", "-o", "BatchMode=yes", VPS, cmd],
@@ -42,6 +43,20 @@ def sent_times() -> list[dt.datetime]:
         if m := TS.match(line):
             times.append(dt.datetime.fromisoformat(m.group(1) + m.group(2)))
     return times
+
+
+def fallback_lines() -> list[dict]:
+    """Lines the mail filter writes when a Gmail API import failed and the message went through the relay instead."""
+    cmd = "sudo cat /var/lib/mailhold/gmailapi-fallback.log 2>/dev/null | tail -200"
+    out = subprocess.run(["ssh", "-o", "ConnectTimeout=20", "-o", "BatchMode=yes", VPS, cmd],
+                         capture_output=True, text=True, timeout=60)
+    rows = []
+    for line in out.stdout.splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            pass
+    return rows
 
 
 def notify(title: str, message: str, priority: int = 3, tags: list[str] | None = None) -> None:
@@ -76,6 +91,13 @@ def main() -> int:
                    f"Above the limit the relay defers the rest until the window clears (nothing is lost).", prio,
                    ["email", "warning" if step >= 90 else "chart_with_upwards_trend"])
             state["fired"].append(step)
+    fb = [r for r in fallback_lines() if r.get("ts", "") >= (now - dt.timedelta(hours=24)).isoformat(timespec="seconds")]
+    if fb and fb[-1]["ts"] > state.get("fallback_seen", ""):
+        last = fb[-1]
+        notify("Gmail API delivery falling back", f"{len(fb)} forward(s) in the last 24 h went through the relay instead "
+               f"of the Gmail API. Last error: {last.get('error', '?')[:160]}. "
+               f"If it says auth lapsed, run hl-mailhold-auth on the mail VPS again.", 4, ["email", "warning"])
+        state["fallback_seen"] = last["ts"]
     if now.hour == 8 and state.get("morning") != today:
         notify("Mail forwards, daily", f"Yesterday {y_count} forwards went through the relay "
                f"(limit {LIMIT}/24 h). Right now the rolling count is {rolling}.", 2, ["email"])
