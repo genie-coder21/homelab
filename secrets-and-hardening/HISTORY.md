@@ -81,3 +81,12 @@ drives parallel hunter and verifier sub-agents over a codebase, writes structure
 checked against a schema, and refuses to execute target code outside an OS-enforced
 sandbox, reporting those checks as needing validation instead. It is meant for reviewing
 the lab's own scripts before they are published here.
+
+## 2026-10-28: A baseline host audit
+
+The Linux hosts got a baseline audit pass with vendor-maintained tools: Lynis for the OS,
+Trivy for container images, ssh-audit for the SSH daemons, Docker Bench for Security for
+the container runtime, and nmap from each side of the tunnel to confirm what is actually
+reachable. It was a read-only pass to establish a baseline; follow-up hardening is recorded
+here as it lands. The external view came back as expected: the home connection answers on
+nothing, and the VPS side answers only on the services it fronts.
