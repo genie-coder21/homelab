@@ -90,3 +90,32 @@ the container runtime, and nmap from each side of the tunnel to confirm what is 
 reachable. It was a read-only pass to establish a baseline; follow-up hardening is recorded
 here as it lands. The external view came back as expected: the home connection answers on
 nothing, and the VPS side answers only on the services it fronts.
+
+## 2026-10-28: Acting on the audit, without breaking anything
+
+The baseline audit's follow-ups were done the same night. They were split into four scoped
+work streams (VPS, host settings, container images, runtime permissions), and each was
+checked independently.
+
+The rule that made it safe: a health baseline before anything else, then a re-check after
+every single change, with an immediate rollback on any difference. Every change kept a
+dated backup and a one-line rollback. Restarts were scheduled for quiet periods.
+
+What landed:
+
+- package updates;
+- SSH algorithm hardening on the server and the VPS;
+- the audit daemon, file integrity, rootkit and package-integrity checks;
+- kernel and login defaults;
+- updated container images, with locally built images rebuilt on current bases;
+- the runtime daemon config, plus `no-new-privileges` and resource limits on every service.
+
+The README sections above describe the end state.
+
+Lessons:
+
+- **`compose run` recreates dependencies whose image or config changed, even with
+  `--no-deps`.** Don't pull or edit shared dependencies of a live stack outside a deploy
+  window.
+- **A memory limit sized from recent peaks can be hit by a rarer, larger workload.** Leave
+  headroom, and announce live changes.

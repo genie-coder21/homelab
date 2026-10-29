@@ -495,3 +495,43 @@ the way: the service inherited its mounts from a shared YAML anchor, and adding 
 per-service `volumes:` list replaced the inherited one instead of extending it, which
 took the handler down for a minute until the mount was moved into the anchor.
 
+
+## 2026-10-28: The old front door retired, the new one hardened
+
+Once the new front door had proven stable, the old VPS was taken out of the picture. The
+order mattered:
+
+- **Old VPS first, over its own tunnel while it still worked.** It left the tailnet, and
+  its public-facing services were shut down in order, the tunnel last.
+- **Then the home side.** The old tunnel interface was removed, along with its
+  host-firewall and `DOCKER-USER` rules and its registrations in the home CrowdSec API.
+  Monitoring was updated to the remaining tunnel.
+- Every change kept a dated backup with a one-line rollback.
+
+A health baseline was taken before anything else and re-checked after every step. It covers
+every container, every published service's HTTP answer, the host services and the public
+URLs through the VPS. The checks after the retirement matched the baseline exactly.
+
+The surviving VPS got its own hardening pass the same night:
+
+- an SSH algorithm set from the ssh-audit guide, with a scan clean of failures and warnings
+  afterwards; weak moduli filtered; ECDSA host key removed;
+- root login off, few auth tries, verbose key logging;
+- TLS 1.2/1.3 only as the web server's global default;
+- the Linux audit daemon, watching identity files, sudoers, SSH, cron, the tunnel, proxy
+  and mail configs, and module loads;
+- a daily rootkit check and a weekly package-integrity check, each re-baselined
+  automatically after package upgrades so updates don't raise false alarms;
+- login banners, stricter default file permissions, no core dumps, and unused network
+  protocol modules blocked from loading.
+
+Each SSH change was made while a separate session stayed open. A fresh login was tested
+before the old session closed, so a mistake could never lock the admin out.
+
+Two traps:
+
+- The rootkit checker reads only the main SSH config, not the drop-in directory, so it
+  warns about a root-login setting that is in fact set. An explicit override in its local
+  config silences that. An inline comment after the value silently breaks the override.
+- Lowering the auth-tries limit means a client that offers many keys from an agent can be
+  refused before it reaches the right one. Pin the identity per host on the client side.

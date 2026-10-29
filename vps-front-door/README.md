@@ -96,8 +96,7 @@ disables the firewall after a few minutes unless it is cancelled once access is 
 ### Tailscale through the VPS
 The home server is not itself a tailnet node; the VPS advertises the home LAN and tunnel
 subnets as a subnet router and forwards into WireGuard. Since the move to the bigger
-instance, that role lives on the new VPS; the old one can take it back with one preference
-change on each side. Two non-obvious pieces:
+instance, that role lives on the new VPS. Two non-obvious pieces:
 
 1. Traffic from tailnet devices is **SNATed to a dedicated tunnel address** (not the VPS's
    own). Without a rewrite, packets arrive at home from a CGNAT address home has no route
@@ -160,16 +159,19 @@ runs at home, and the VPS is the only thing the internet talks to.
 ### Key-only SSH, management over the tunnel
 Both machines use public-key-only SSH with root login disabled and a short auth window,
 set in a drop-in rather than the main config (`templates/sshd-hardening.conf.example`).
-Administrative SSH to the VPS goes **through the tunnel**, which is in a private range
-CrowdSec always whitelists, so the IDS can never lock the admin out even if the admin's
-public exit address lands on a blocklist.
+The drop-in also pins a modern algorithm set (post-quantum hybrid and curve25519 key
+exchange, AEAD ciphers, encrypt-then-MAC, Ed25519 and RSA host keys only) following the
+ssh-audit hardening guide for the distribution, and weak Diffie-Hellman moduli were
+filtered out. On the VPS the web server's global TLS default is also limited to TLS 1.2
+and 1.3, so no server block can fall back to older protocols.
 
 ### Tunnel health check
 `scripts/hl-tunnel-healthcheck` runs from a systemd timer every 5 minutes. It checks the
 two things that failed silently once (see traps): the interface still has its address,
 and the VPS answers on TCP. If either fails it restarts `wg-quick`. `wg-quick` is
 `Type=oneshot`, so a drop-in adds `Restart=on-failure` (permitted for oneshot) so a failed
-cold boot retries instead of staying dead.
+cold boot retries instead of staying dead. The general monitoring watchdog now covers tunnel
+health.
 
 ### Keeping a free VM alive
 Oracle reclaims Always Free instances that sit idle (CPU utilisation under a threshold over
@@ -225,7 +227,7 @@ and a test ban (a TEST-NET address) reaching the new bouncer within seconds. A r
 then measured roughly **5x** the throughput through the new VPS.
 
 Cutover was a DNS change with a short TTL; rollback is the same change in reverse, so the
-old VPS and tunnel are kept untouched as a rollback path for a while before retirement.
+old VPS and tunnel were kept untouched as a rollback path for a while, then retired.
 
 ### Retiring a front-door VPS (checklist)
 1. Move the Tailscale subnet router to the new VPS (needs a route approval in the admin

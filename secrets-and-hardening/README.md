@@ -70,6 +70,7 @@ Secrets the gaming-pc needs (e.g. a notification token) are fetched once over SS
 
 - **SSH accepts public keys only.** Password and keyboard-interactive authentication are off, root login is off, there are few auth tries and a short grace time. All of this lives in a **drop-in** under `sshd_config.d/`, so the distribution's main config stays untouched and upgrades merge cleanly. The config is validated before every reload.
 - SSH is **socket-activated**. systemd holds the port and starts the daemon per connection, so "service inactive" is normal; check the socket instead.
+- **A modern algorithm set is pinned in the same drop-in** (post-quantum hybrid and curve25519 key exchange, AEAD ciphers, encrypt-then-MAC, Ed25519 and RSA host keys only, per the ssh-audit hardening guide). The ECDSA host key was retired; clients that had pinned it drop it on their own through OpenSSH's host-key update. Agent forwarding is off and each login logs the key fingerprint used.
 - **Host key fingerprints are recorded** so a new client can verify the server on first connect.
 - **The client's private key is the only way in over SSH**, so keep a backup of it and a separate local-console recovery path.
 
@@ -102,3 +103,17 @@ Secrets the gaming-pc needs (e.g. a notification token) are fetched once over SS
 - **Cloud CLI keys can be TPM-held too.** A small wrapper decrypts the key to a per-user tmpfs for a single call and deletes it afterwards, so the plaintext key file is never kept.
 - **Build caches grow without limit.** Repeated image rebuilds left about 255 GB of stale layers and took the system disk to 71 %. Trimming to a fixed size after each build and daily keeps recent layers (fast rebuilds) without the growth.
 - **Docker can beat the disk at boot.** Without the mount dependency, containers start against the empty mountpoint and run "healthy" while blind. Make the dependency explicit and monitor for the symptom too.
+
+## Auditing and integrity
+
+- **The Linux audit daemon** watches the container runtime: its binaries, socket, config directory and daemon config file, and its systemd units. Any change there leaves a keyed record. Logs rotate at a fixed total size. Watches are kept to config and binaries, so the log volume stays useful.
+- **File integrity (AIDE)** covers the system directories with a single strong hash, nightly at idle priority. Trap: the distribution's default includes the whole filesystem, which on a large data disk hashes everything and needs gigabytes of memory; scope it.
+- **A rootkit checker** runs daily and **a package-integrity check** weekly. Both run offline and re-baseline automatically after package upgrades.
+- **Kernel and login defaults:** no core dumps for setuid programs (the crash reporter is disabled, because it would quietly turn that back on at boot); stricter kernel-pointer and BPF JIT settings; martian-packet logging; protected FIFOs; unused network protocol modules blocked. One trap: a distribution sysctl file sorts after a `90-` name and overrides it, so that setting needed a later-sorting file name to win.
+
+## Container runtime defaults
+
+- **Daemon config:** live-restore, so a runtime upgrade or restart no longer restarts every container. `no-new-privileges` is the default for new containers, and logs are rotated by default. The config is validated before any restart.
+- **Every compose service states `no-new-privileges`, a memory limit, a process-count limit and log rotation explicitly.** Limits were sized at three times or more the measured peaks. Each container was function-tested after the change, not only checked for "running". None needed an exception. Daemon defaults apply only when a container is created, so the explicit per-service settings are what make the change hold.
+- **Trap:** binding a published port to a single interface address can stop the container starting if that interface isn't up yet at boot.
+
