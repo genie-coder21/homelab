@@ -1,0 +1,74 @@
+# hardening_systemd - per-unit systemd sandbox drop-ins.
+#
+# One generic loop: every unit listed for this host in hardening_systemd_units (defaults/main.yml)
+# gets /etc/systemd/system/<unit>.d/50-hardening.conf. A unit with `enabled: false` has its drop-in
+# REMOVED (that is the rollback switch). A future service only needs a dict entry; see the
+# "NEW SERVICE RULE" comment at the top of defaults/main.yml.
+#
+# Nothing is restarted here on purpose: oneshot/timer units pick the drop-in up on their next run,
+# long-running daemons only after a restart that a human (or a session) does deliberately and tests.
+
+- name: Units configured for this host
+  # WHY: one dict per host keeps server and vps units apart without separate task files.
+  ansible.builtin.set_fact:
+    _hs_units: "{{ hardening_systemd_units[inventory_hostname] | default({}) }}"
+
+- name: Check every configured unit exists here
+  # WHY: a drop-in for a unit that is not installed would silently create a half-unit; skip those instead.
+  ansible.builtin.command: systemctl cat -- {{ item.key }}
+  loop: "{{ _hs_units | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: _hs_exists
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Drop-in directory per unit
+  # WHY: drop-ins (never edits of the unit file) survive package upgrades and are trivially reversible.
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item.item.key }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ _hs_exists.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when: item.rc == 0 and (item.item.value.enabled | default(true))
+
+- name: Sandbox drop-in 50-hardening.conf
+  # WHY: the options per unit were worked out from what its script touches and tested for real
+  # under systemd-run first; 50- sorts after vendor/other drop-ins so ours win only where we set something.
+  ansible.builtin.template:
+    src: 50-hardening.conf.j2
+    dest: "/etc/systemd/system/{{ item.item.key }}.d/50-hardening.conf"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: false
+  vars:
+    u: "{{ item.item }}"
+  loop: "{{ _hs_exists.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when: item.rc == 0 and (item.item.value.enabled | default(true))
+  notify: systemd daemon-reload
+
+- name: Remove the drop-in of units switched off (enabled false)
+  # WHY: rollback path - flip enabled to false, re-run the role, restart the unit if it is a daemon.
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item.key }}.d/50-hardening.conf"
+    state: absent
+  loop: "{{ _hs_units | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: not (item.value.enabled | default(true))
+  notify: systemd daemon-reload
+
+- name: Units whose drop-in changed and that only pick it up on restart
+  # WHY: daemons keep running with the old sandbox until restarted; say so instead of restarting.
+  ansible.builtin.debug:
+    msg: >-
+      Drop-ins written. Long-running units need a deliberate, tested restart to apply:
+      {{ _hs_units | dict2items | selectattr('value.daemon', 'defined') | selectattr('value.daemon') | map(attribute='key') | list }}

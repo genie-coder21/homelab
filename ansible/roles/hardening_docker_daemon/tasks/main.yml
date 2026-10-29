@@ -1,0 +1,20 @@
+# hardening_docker_daemon - /etc/docker/daemon.json on the server.
+# SAFETY: there is deliberately NO handler. A daemon.json change only takes effect on a docker reload or
+# restart, which touches every container. If this task reports "changed", schedule that by hand in a
+# maintenance window, never from Ansible.
+- name: Docker daemon.json
+  ansible.builtin.copy:
+    content: "{{ hardening_docker_daemon_config | to_nice_json(indent=2) }}\n"
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/bin/dockerd --validate --config-file %s
+  register: hardening_docker_daemon_json
+
+- name: Remind that docker needs a manual reload/restart
+  ansible.builtin.debug:
+    msg: >-
+      daemon.json changed. NOT applied to the running daemon. Reload or restart docker at the next
+      maintenance window (live-restore keeps containers running across a daemon restart).
+  when: hardening_docker_daemon_json is changed

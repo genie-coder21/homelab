@@ -1,0 +1,14 @@
+# {{ ansible_managed }} - role hardening_systemd
+# Sandbox drop-in for {{ u.key }}. Edit roles/hardening_systemd/defaults/main.yml, not this file.
+# Takes effect at the unit's NEXT start: a timer/oneshot on its next run, a daemon only after a restart.
+# Check: systemd-analyze security {{ u.key }}    Undo: delete this file + systemctl daemon-reload.
+{% if u.value.why is defined %}
+# Why these options: {{ u.value.why }}
+{% endif %}
+[Service]
+{% for key, val in u.value.options | dictsort %}
+{%   set vals = val if (val is iterable and val is not string and val is not mapping) else [val] %}
+{%   for v in vals %}
+{{ key }}={{ 'yes' if v is sameas true else ('no' if v is sameas false else v) }}
+{%   endfor %}
+{% endfor %}

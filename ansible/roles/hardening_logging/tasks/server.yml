@@ -1,0 +1,107 @@
+# --- server: receiver for the vps + forwarder to the gaming PC ---------------------------------------
+
+- name: Folder for logs received from other hosts
+  # root-owned top level; the per-host folder belongs to syslog so rsyslog (privileges dropped to syslog)
+  # can create files, and logrotate's parent-dir permission check stays happy.
+  ansible.builtin.file:
+    path: "{{ logship_remote_dir }}"
+    state: directory
+    owner: root
+    group: adm
+    mode: "0750"
+
+- name: Per-host folder for the vps's logs
+  ansible.builtin.file:
+    path: "{{ logship_remote_dir }}/{{ logship_vps_name }}"
+    state: directory
+    owner: syslog
+    group: adm
+    mode: "0750"
+
+- name: Drop-in folder for rsyslog.service
+  ansible.builtin.file:
+    path: /etc/systemd/system/rsyslog.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Start rsyslog after the tunnel is up
+  # imtcp binds only to the tunnel address, and rsyslog never retries a failed bind: if it started
+  # before the tunnel at boot, the listener would be dead until the next rsyslog restart.
+  # Ordering only (no Wants/Requires): if the tunnel fails, rsyslog still starts.
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/rsyslog.service.d/10-after-tunnel.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # roles/hardening_logging: the vps log listener binds to the tunnel address.
+      [Unit]
+      After=wg-quick@{{ logship_tunnel_if }}.service
+  notify: Restart rsyslog
+
+- name: rsyslog receive + forward config
+  ansible.builtin.template:
+    src: server-logship.conf.j2
+    dest: /etc/rsyslog.d/10-hl-logship.conf
+    owner: root
+    group: root
+    mode: "0644"
+    # no backup: the file is wholly ours, and a "~" copy would linger in /etc/rsyslog.d
+  register: logship_server_conf
+  notify: Restart rsyslog
+
+- name: Tighten files rsyslog created before fileCreateMode was set
+  # rsyslog applies fileCreateMode/fileGroup only when it creates a file. Make any world-readable
+  # one 0640 syslog:adm. No-op afterwards.
+  ansible.builtin.shell: >-
+    find {{ item }} -maxdepth 1 -type f \( -perm -o=r -o ! -group adm \)
+    -print -exec chgrp adm {} + -exec chmod 0640 {} +
+  register: logship_perm_fix
+  changed_when: logship_perm_fix.stdout | length > 0
+  loop: ["{{ logship_remote_dir }}/{{ logship_vps_name }}"]
+
+- name: Validate the whole rsyslog config before the restart
+  # Not the template module's validate=: AppArmor only lets rsyslogd read /etc/rsyslog.d/**, not
+  # Ansible's temp file. A failure here stops the play before the handler restarts rsyslog, so the
+  # running rsyslog keeps its old config.
+  ansible.builtin.command: rsyslogd -N1
+  changed_when: false
+  when: logship_server_conf is changed
+
+- name: Rotate the received logs (daily, compressed)
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/hl-remote-logs
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # roles/hardening_logging: logs received from other hosts by rsyslog.
+      {{ logship_remote_dir }}/*/*.log
+      {{ logship_remote_dir }}/*/syslog
+      {
+          daily
+          rotate {{ logship_remote_keep_days }}
+          missingok
+          notifempty
+          compress
+          delaycompress
+          sharedscripts
+          postrotate
+              /usr/lib/rsyslog/rsyslog-rotate
+          endscript
+      }
+
+- name: Host firewall - syslog from the vps, on the tunnel only
+  # Only the vps end of the tunnel may reach the listener. A host rule (rsyslog is not a container),
+  # so no DOCKER-USER change.
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: "{{ logship_tunnel_if }}"
+    from_ip: "{{ logship_vps_tunnel_ip }}"
+    to_ip: "{{ logship_server_tunnel_ip }}"
+    to_port: "{{ logship_port | string }}"
+    proto: tcp
+    comment: "rsyslog from the vps (hardening_logging)"

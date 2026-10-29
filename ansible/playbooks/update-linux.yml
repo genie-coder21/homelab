@@ -16,4 +16,4 @@
       register: reboot_flag
 
     - ansible.builtin.debug:
-        msg: "upgraded={{ apt.changed }}  reboot_required={{ reboot_flag.stat.exists }}  (reboot by hand - the media server or a backup may be running)"
+        msg: "upgraded={{ apt.changed }}  reboot_required={{ reboot_flag.stat.exists }}  (reboot by hand - long-running services or a backup may be busy)"

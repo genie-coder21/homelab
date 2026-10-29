@@ -1,0 +1,7 @@
+# An rsyslog restart is safe: journald and the syslog socket buffer while it restarts, and the
+# disk-assisted queues are saved on shutdown (queue.saveOnShutdown) and resumed.
+- name: Restart rsyslog
+  ansible.builtin.systemd_service:
+    name: rsyslog
+    state: restarted
+    daemon_reload: true

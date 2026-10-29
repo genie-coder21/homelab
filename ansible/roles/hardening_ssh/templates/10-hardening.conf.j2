@@ -1,0 +1,15 @@
+# {{ ansible_managed }} - role hardening_ssh
+# A drop-in, so the distro's main sshd_config stays untouched and upgrades merge cleanly.
+{% for k, v in hardening_ssh_settings.items() %}
+{{ k }} {{ v }}
+{% endfor %}
+{% for k in hardening_ssh_host_keys %}
+HostKey {{ k }}
+{% endfor %}
+KexAlgorithms {{ hardening_ssh_kex }}
+Ciphers {{ hardening_ssh_ciphers }}
+MACs {{ hardening_ssh_macs }}
+HostKeyAlgorithms {{ hardening_ssh_host_key_algorithms }}
+{% for k, v in hardening_ssh_extra.items() %}
+{{ k }} {{ v }}
+{% endfor %}

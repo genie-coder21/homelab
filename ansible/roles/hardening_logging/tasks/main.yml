@@ -1,0 +1,10 @@
+# Remote log shipping:  vps --(rsyslog TCP over the tunnel)--> server --(rsyslog TCP over the LAN)--> gaming-pc
+# The gaming-pc receiver is set up by playbooks/logging-gaming-pc.yml (Windows, separate playbook).
+
+- name: Server side (receive from the vps, ship everything to the gaming PC)
+  ansible.builtin.import_tasks: server.yml
+  when: "'linux' in group_names"
+
+- name: VPS side (ship everything to the server over the tunnel)
+  ansible.builtin.import_tasks: vps.yml
+  when: "'cloud' in group_names"

@@ -1,0 +1,11 @@
+# Validate the WHOLE effective config before touching the daemon; a failed `sshd -t` stops the play here.
+- name: Validate and reload sshd
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+  notify: Reload sshd
+
+# reload (SIGHUP), never restart: established sessions stay up.
+- name: Reload sshd
+  ansible.builtin.systemd_service:
+    name: ssh
+    state: reloaded

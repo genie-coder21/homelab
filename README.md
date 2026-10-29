@@ -7,7 +7,7 @@ A small self-hosted infrastructure built and run at home: one always-on Ubuntu s
                     |
              +-------------+        WireGuard tunnel        +-------------------+
              |     vps     | <----------------------------> |      server       |
-             | reverse     |   (home exposes no ports)      | Ubuntu 24.04      |
+             | reverse     |   (home exposes no ports)      | Ubuntu LTS        |
              | proxy +     |                                | Docker, restic,   |
              | CrowdSec    |                                | orchestration,    |
              | bouncer     |                                | ntfy, watchdogs   |
@@ -30,12 +30,12 @@ A small self-hosted infrastructure built and run at home: one always-on Ubuntu s
 |---|---|
 | [backups](backups/) | Nightly restic backups to the gaming PC (woken on demand), an off-site Git mirror with pre-push secret scanning, and a boot-order guard for Docker |
 | [kids-gaming-vms](kids-gaming-vms/) | Windows game VMs for the kids in Hyper-V, launched from a web page, streamed with Sunshine/Moonlight, managed and put to sleep by the server |
-| [vps-front-door](vps-front-door/) | A free cloud VPS as the only public entry point, WireGuard back home, CrowdSec, layered firewalling, and the migration to a faster instance |
+| [vps-front-door](vps-front-door/) | A small cloud VPS as the only public entry point, WireGuard back home, CrowdSec, layered firewalling, and the migration to a faster instance |
 | [notifications-monitoring](notifications-monitoring/) | Self-hosted ntfy push notifications, a server watchdog, and Windows toast notifications |
-| [secrets-and-hardening](secrets-and-hardening/) | TPM-bound secrets with systemd-creds, a compose wrapper that injects them, and host hardening conventions |
+| [secrets-and-hardening](secrets-and-hardening/) | TPM-bound secrets with systemd-creds, a compose wrapper that injects them, host hardening, sandboxed services, remote logging, and the standard every new service follows |
 | [local-llm](local-llm/) | An Ollama model on the gaming PC's GPU, woken on demand by the server |
 | [windows-power](windows-power/) | Power-plan switching scripts and shortcuts for the gaming PC |
-| [ansible](ansible/) | The server as an Ansible control node for itself and the gaming PC, the Windows side over OpenSSH |
+| [ansible](ansible/) | The server as an Ansible control node for itself, the VPS and the gaming PC (the Windows side over OpenSSH), and the host hardening of both Linux machines as roles |
 | [roadmap](roadmap/) | Design notes for planned work: a ZFS rebuild, an Ansible rebuild, a two-node k3s cluster |
 
 ## Conventions

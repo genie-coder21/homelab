@@ -119,3 +119,50 @@ Lessons:
   window.
 - **A memory limit sized from recent peaks can be hit by a rarer, larger workload.** Leave
   headroom, and announce live changes.
+
+## 2026-10-29: A second hardening pass, and all of it as code
+
+This pass followed the same rule as the first: a health baseline first, a re-check after every single
+change, an immediate rollback on any difference, and no restarts of sshd, docker or the tunnel. The work
+was split into scoped streams that ran side by side, each logging every change before making it and
+keeping a dated backup and a one-line rollback for it. Everything went in through an Ansible role and was
+dry-run first (see `../ansible`).
+
+**What landed** (design notes in the README):
+
+- process accounting, compilers restricted to a group, a stricter default umask, SysRq off, and a
+  boot-loader password that guards editing and recovery but not a normal boot;
+- sandbox drop-ins for every service we wrote, generated from one dictionary;
+- remote log shipping from the VPS to the server to the gaming PC, with a size-capped disk queue on both
+  hops and a small PowerShell receiver on the PC;
+- file integrity on the VPS with a verdict the server pulls, so no notification token lives on the VPS;
+- password quality rules, one shared TLS policy for every site, and system mail kept local and
+  collected into notifications;
+- the earlier pass's settings captured as roles, and a written standard that every new service follows.
+
+**How the boot-loader password was made safe.** A boot password must never block an unattended boot. Instead of trusting the menu generator, the role builds a candidate config in a
+scratch location, a verify script checks it (default entry and every normal entry unrestricted, recovery
+entries restricted, valid syntax), and only a passing candidate leads to regenerating the real config. The
+verify then runs again on the live file. The stat override that keeps the stock generator from running
+twice was proven to survive a package upgrade with a throw-away package.
+
+**How the sandboxes were tested.** Every option set ran first as a transient unit through `systemd-run`,
+with the unit's real command or a harmless equivalent, and the output was compared with an unsandboxed
+run. That included a real share mount for the backup job. Each daemon was then restarted once and its
+function checked.
+
+**What broke, and how it was fixed:**
+
+- **No-new-privileges and privileged helpers.** Testing under `systemd-run` showed that the strictest
+  profile breaks units that rely on a privileged helper; those got a profile without it.
+- **Mounts that vanished.** Mount-namespace options would have hidden the backup job's share mount from the
+  rest of the host; units that mount things now use a profile without any of those options.
+- **rsyslog validation under AppArmor.** Validating the rendered file from Ansible's temporary path failed
+  because AppArmor confines rsyslog's reads. The role now writes the file, validates the live config tree,
+  and stops before the restart on a failure. Stopping rsyslog for a test also needed its socket unit
+  stopped, or socket activation started it again at once.
+- **A root-only log file.** The log shipper runs unprivileged and couldn't read the intrusion detection
+  agent's own log, so that agent was switched to journald and rsyslog now writes the file itself.
+
+At the end the health checks matched the baseline on both hosts, and a full dry run of the hardening
+playbook reported `changed=0` on both Linux hosts and on the gaming PC.

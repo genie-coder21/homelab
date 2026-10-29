@@ -1,0 +1,64 @@
+# READ-ONLY audit of the container standard. Every service in every /opt/<stack>/compose.yaml must set:
+#   security_opt: [no-new-privileges:true]   mem_limit   pids_limit   logging (json-file, max-size/max-file)
+# Changes nothing; fails and lists every service that lacks a key.
+#   ansible-playbook playbooks/audit-compose.yml
+# A documented exception goes in compose_audit_exceptions as "<stack>/<service>".
+- name: Audit compose files against the container standard
+  hosts: linux
+  become: true
+  gather_facts: false
+  vars:
+    compose_audit_root: /opt
+    compose_audit_required: [security_opt, mem_limit, pids_limit, logging]
+    compose_audit_exceptions: []
+  tasks:
+    # depth 2 = /opt/<stack>/compose.yaml only; file_type any so a symlinked compose file counts too.
+    - name: Find compose files
+      ansible.builtin.find:
+        paths: "{{ compose_audit_root }}"
+        patterns: compose.yaml
+        recurse: true
+        depth: 2
+        file_type: any
+      register: compose_audit_files
+
+    - name: Read compose files
+      ansible.builtin.slurp:
+        src: "{{ item.path }}"
+      loop: "{{ compose_audit_files.files | sort(attribute='path') }}"
+      loop_control:
+        label: "{{ item.path }}"
+      register: compose_audit_raw
+
+    # from_yaml resolves anchors and `<<:` merges, so keys inherited from an anchor count.
+    - name: Collect services missing a required key
+      ansible.builtin.set_fact:
+        compose_audit_missing: >-
+          {%- set out = [] -%}
+          {%- for r in compose_audit_raw.results -%}
+            {%- set stack = r.item.path.split('/')[-2] -%}
+            {%- set doc = r.content | b64decode | from_yaml -%}
+            {%- for name, svc in (doc.services | default({})).items() -%}
+              {%- set miss = [] -%}
+              {%- for k in compose_audit_required -%}
+                {%- if k not in svc -%}{%- set _ = miss.append(k) -%}{%- endif -%}
+              {%- endfor -%}
+              {%- if 'security_opt' in svc and ('no-new-privileges:true' not in (svc.security_opt | join(' '))) -%}
+                {%- set _ = miss.append('security_opt:no-new-privileges:true') -%}
+              {%- endif -%}
+              {%- if miss and (stack ~ '/' ~ name) not in compose_audit_exceptions -%}
+                {%- set _ = out.append(stack ~ '/' ~ name ~ ': ' ~ (miss | join(', '))) -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {{ out }}
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: "{{ compose_audit_missing if compose_audit_missing else 'All ' ~ (compose_audit_raw.results | length) ~ ' compose files meet the container standard' }}"
+
+    - name: Fail if any service is below the standard
+      ansible.builtin.assert:
+        that: compose_audit_missing | length == 0
+        fail_msg: "{{ compose_audit_missing | length }} service(s) below the container standard (see Report above)"
+        quiet: true

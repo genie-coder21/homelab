@@ -1,0 +1,17 @@
+#!/bin/sh
+# Check a generated grub.cfg: superuser + PBKDF2 password present, default entry and every normal Linux entry
+# (and the Advanced submenu) --unrestricted, recovery entries restricted, syntax valid.  Exit 0 = OK.
+# Usage: hl-grub-verify /boot/grub/grub.cfg
+cfg=${1:-/boot/grub/grub.cfg}; rc=0
+grep -q '^set superusers=' "$cfg" || { echo "FAIL no superusers"; rc=1; }
+grep -q '^password_pbkdf2 .* grub\.pbkdf2\.sha512\.' "$cfg" || { echo "FAIL no password_pbkdf2"; rc=1; }
+grep -Eq '^[[:space:]]*set default="?0"?$' "$cfg" || { echo "FAIL default is not entry 0"; rc=1; }
+first=$(grep -E '^(menuentry|submenu) ' "$cfg" | head -1)
+case "$first" in *--unrestricted*) ;; *) echo "FAIL first (default) entry restricted: $first"; rc=1;; esac
+n=$(grep -E '^[[:space:]]*(menuentry|submenu) .*gnulinux-' "$cfg" | grep -v -- '-recovery-' | grep -vc -- '--unrestricted')
+[ "$n" = 0 ] || { echo "FAIL $n normal linux entries without --unrestricted"; rc=1; }
+r=$(grep -E '^[[:space:]]*menuentry .*-recovery-' "$cfg" | grep -c -- '--unrestricted')
+[ "$r" = 0 ] || { echo "FAIL $r recovery entries are unrestricted"; rc=1; }
+grub-script-check "$cfg" || { echo "FAIL grub-script-check"; rc=1; }
+[ $rc = 0 ] && echo "OK $(grep -cE '^[[:space:]]*menuentry .*--unrestricted' "$cfg") unrestricted entries, $(grep -cE '^[[:space:]]*menuentry .*-recovery-' "$cfg") recovery entries restricted"
+exit $rc

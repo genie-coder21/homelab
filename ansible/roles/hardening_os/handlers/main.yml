@@ -1,0 +1,8 @@
+# Apply one file only (never `sysctl --system`, which would re-apply every distro file at once).
+- name: Apply hardening sysctl
+  ansible.builtin.command: /usr/sbin/sysctl -p /etc/sysctl.d/90-hardening.conf
+  changed_when: true
+
+- name: Apply late sysctl
+  ansible.builtin.command: /usr/sbin/sysctl -p /etc/sysctl.d/99-zz-hardening.conf
+  changed_when: true

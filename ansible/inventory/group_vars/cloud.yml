@@ -1,0 +1,3 @@
+# The VPS: key-only SSH as its admin user.
+ansible_user: <vps-admin-user>
+ansible_become: true

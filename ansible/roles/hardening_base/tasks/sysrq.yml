@@ -1,0 +1,24 @@
+# kernel.sysrq: turn off the magic SysRq key, so nobody at a console can send SysRq reboot/kill/sync combos.
+# Ubuntu ships kernel.sysrq = 176 in /etc/sysctl.d/10-magic-sysrq.conf; this file sorts later and wins.
+- name: kernel.sysrq drop-in
+  ansible.builtin.copy:
+    dest: "{{ hardening_base_sysrq_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (roles/hardening_base). Overrides 10-magic-sysrq.conf (176).
+      kernel.sysrq = {{ hardening_base_sysrq_value }}
+
+# Apply live, this key only (sysctl -p <file>), never `sysctl --system`, which would re-apply every
+# other file too.
+- name: Read live kernel.sysrq
+  ansible.builtin.command: sysctl -n kernel.sysrq
+  register: hardening_base_sysrq_live
+  changed_when: false
+  check_mode: false
+
+- name: Apply kernel.sysrq live
+  ansible.builtin.command: sysctl -p {{ hardening_base_sysrq_file }}
+  when: hardening_base_sysrq_live.stdout | int != hardening_base_sysrq_value | int
+  changed_when: true

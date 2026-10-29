@@ -1,0 +1,8 @@
+# /etc/docker/daemon.json, rendered from this dict.
+hardening_docker_daemon_config:
+  live-restore: true                 # a daemon restart or upgrade no longer restarts every container
+  no-new-privileges: true            # default for NEW containers (compose files state it per service too)
+  log-driver: json-file
+  log-opts:
+    max-size: "50m"
+    max-file: "3"

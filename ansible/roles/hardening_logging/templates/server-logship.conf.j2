@@ -1,0 +1,59 @@
+# {{ ansible_managed }} - roles/hardening_logging
+# Named 10-* so it runs before the distro's firewall / cloud-init rsyslog files, whose "stop" would
+# otherwise keep those lines from being shipped.
+#
+# 1) RECEIVE: {{ logship_vps_name }} ships its logs over the WireGuard tunnel. The listener binds only to
+#    the tunnel address (the host firewall allows only the vps end of the tunnel), and it is bound to its
+#    own ruleset, so vps lines never land in this host's own syslog/auth.log (the local intrusion-detection
+#    agent reads those and must not see vps attacks as local ones).
+# 2) SHIP: everything this host logs, plus everything received from the vps, goes to the gaming PC.
+
+# One line per message, with facility.severity so the files on the PC are greppable.
+template(name="hl_ship" type="string"
+         string="%TIMESTAMP:::date-rfc3339% %HOSTNAME% %syslogfacility-text%.%syslogseverity-text% %syslogtag%%msg:::sp-if-no-1st-sp%%msg:::drop-last-lf%")
+
+# Gaming-PC hop: own action queue, in memory first then spilled to disk, size-capped;
+# retry forever every 30 s.
+ruleset(name="hl_to_gaming_pc") {
+    action(type="omfwd" name="fwd_gaming_pc"
+           target="{{ logship_gaming_pc_ip }}" port="{{ logship_port }}" protocol="tcp"
+           template="hl_ship" keepAlive="on"
+           queue.type="LinkedList" queue.filename="fwd_gaming_pc"
+           queue.size="{{ logship_queue_mem_msgs }}" queue.maxDiskSpace="{{ logship_server_queue_max }}"
+           queue.saveOnShutdown="on" queue.timeoutEnqueue="{{ logship_queue_timeout_enqueue }}"
+           action.resumeRetryCount="-1" action.resumeInterval="30")
+}
+
+# Files for what the vps sends, mirroring its own layout.
+template(name="hl_remote_line" type="string"
+         string="%TIMESTAMP:::date-rfc3339% %HOSTNAME% %syslogtag%%msg:::sp-if-no-1st-sp%%msg:::drop-last-lf%\n")
+
+ruleset(name="hl_from_vps") {
+    # Defence in depth: the host firewall already limits the port to the vps tunnel address.
+    if $fromhost-ip != "{{ logship_vps_tunnel_ip }}" then stop
+{% set d = logship_remote_dir ~ '/' ~ logship_vps_name %}
+    if $programname == "nginx-access" then {
+        action(type="omfile" file="{{ d }}/nginx-access.log" template="hl_remote_line"
+               fileCreateMode="0640" fileGroup="adm")
+    } else if $programname == "nginx-error" then {
+        action(type="omfile" file="{{ d }}/nginx-error.log" template="hl_remote_line"
+               fileCreateMode="0640" fileGroup="adm")
+    } else if $programname == "crowdsec" then {
+        action(type="omfile" file="{{ d }}/crowdsec.log" template="hl_remote_line"
+               fileCreateMode="0640" fileGroup="adm")
+    } else if $syslogfacility-text == "auth" or $syslogfacility-text == "authpriv" then {
+        action(type="omfile" file="{{ d }}/auth.log" template="hl_remote_line"
+               fileCreateMode="0640" fileGroup="adm")
+    } else {
+        action(type="omfile" file="{{ d }}/syslog" template="hl_remote_line"
+               fileCreateMode="0640" fileGroup="adm")
+    }
+    call hl_to_gaming_pc
+}
+
+module(load="imtcp" maxSessions="10")
+input(type="imtcp" name="from_vps" address="{{ logship_server_tunnel_ip }}" port="{{ logship_port }}"
+      ruleset="hl_from_vps")
+
+# Everything logged on this host (journald forwards to rsyslog on Ubuntu) also goes to the gaming PC.
+call hl_to_gaming_pc

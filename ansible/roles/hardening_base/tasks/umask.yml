@@ -1,0 +1,20 @@
+# Default umask 027 in /etc/login.defs, so new files are not world-readable by default.
+# pam_umask applies it to every PAM session, including Ansible become.  systemd services, Docker
+# containers and dpkg are NOT affected: they never go through pam_umask.
+# Only login.defs lines owned here: UMASK.  (other roles own the other keys.)
+
+# Optional per-user override through the GECOS field (empty by default).
+- name: Per-user umask overrides (GECOS umask=)
+  ansible.builtin.user:
+    name: "{{ item.key }}"
+    comment: "{{ item.value }}"
+  loop: "{{ hardening_base_umask_exceptions | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+# The umask line itself.
+- name: Default umask 027 in login.defs
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^UMASK\s'
+    line: "UMASK\t\t{{ hardening_base_login_umask }}"

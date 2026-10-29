@@ -1,0 +1,25 @@
+#!/bin/sh
+# Managed by Ansible (roles/hardening_base).  Do not edit by hand.
+#
+# Stock /etc/grub.d/10_linux, with every normal (non-recovery) menuentry and the "Advanced options" submenu
+# marked --unrestricted, so a GRUB superuser password (01_hardening_password) only guards editing an entry,
+# the GRUB command line and recovery mode — the box still boots unattended.
+# 10_linux itself is kept non-executable by `dpkg-statoverride root root 0644 /etc/grub.d/10_linux` (survives
+# grub-common upgrades), so it isn't run twice; it is run here with sh, so upstream changes still flow through.
+# This file sorts BEFORE 10_linux on purpose: even if 10_linux ever became executable again, the first
+# (default) entry would still be an unrestricted one.
+set -e
+src=/etc/grub.d/10_linux
+[ -f "$src" ] || exit 0
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+sh "$src" > "$tmp"
+sed -i '/^[[:space:]]*\(menuentry\|submenu\) /{/-recovery-/!{/--unrestricted/!s/ \$menuentry_id_option / --unrestricted $menuentry_id_option /}}' "$tmp"
+# Fail-safe: if upstream ever changes the line format so the sed misses, abort grub-mkconfig (the old
+# grub.cfg is kept) rather than write a config whose default entry would stop at a password prompt.
+bad=$(grep -E '^[[:space:]]*(menuentry|submenu) ' "$tmp" | grep -v -- '-recovery-' | grep -vc -- '--unrestricted' || true)
+if [ "$bad" != "0" ]; then
+  echo "09_linux_unrestricted: $bad boot entries could not be marked --unrestricted; refusing" >&2
+  exit 1
+fi
+cat "$tmp"

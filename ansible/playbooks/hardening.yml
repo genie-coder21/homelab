@@ -1,0 +1,20 @@
+# Hardening baseline for the two Linux hosts (server + vps).
+#   Always dry-run first:  ansible-playbook playbooks/hardening.yml --check --diff
+#   One area, one host:    ansible-playbook playbooks/hardening.yml --tags <tag> --limit <host> --check --diff
+# Every role is idempotent: a second run must report changed=0.
+# Further host- and VPS-specific roles are kept private.
+# SAFETY: no role restarts sshd, docker, the WireGuard tunnel or the mesh VPN. sshd only ever gets
+# a config test followed by a reload; a daemon.json change only prints "restart at the next maintenance window".
+- name: Hardening baseline (both Linux hosts)
+  hosts: linux:cloud
+  roles:
+    - { role: hardening_ssh,     tags: [ssh] }       # sshd drop-in, sshd_config mode, no ECDSA host key
+    - { role: hardening_os,      tags: [os] }        # sysctl, no core dumps, module blacklist, banners
+    - { role: hardening_base,    tags: [base] }      # process accounting, compilers, umask, sysrq, boot loader
+    - { role: hardening_systemd, tags: [systemd] }   # per-unit sandbox drop-ins
+    - { role: hardening_logging, tags: [logging] }   # remote log shipping
+
+- name: Server-only hardening
+  hosts: linux
+  roles:
+    - { role: hardening_docker_daemon, tags: [docker] }  # /etc/docker/daemon.json, never restarts docker

@@ -1,0 +1,37 @@
+# {{ ansible_managed }} - roles/hardening_logging
+# Named 10-* so it runs before the distro's cloud-init / default rsyslog files.
+#
+# Ship every log line of this host to the server over the WireGuard tunnel. Outbound only, through the
+# existing tunnel: no firewall change on this host. The server files it under
+# {{ logship_remote_dir }}/{{ logship_vps_name }}/ and passes it on to the gaming PC.
+
+# Tunnel hop. Own action queue, in memory first then spilled to disk, size-capped; retry every 10 s.
+ruleset(name="hl_to_server") {
+    action(type="omfwd" name="fwd_server"
+           target="{{ logship_server_tunnel_ip }}" port="{{ logship_port }}" protocol="tcp"
+           template="RSYSLOG_ForwardFormat" keepAlive="on"
+           queue.type="LinkedList" queue.filename="fwd_server"
+           queue.size="{{ logship_queue_mem_msgs }}" queue.maxDiskSpace="{{ logship_vps_queue_max }}"
+           queue.saveOnShutdown="on" queue.timeoutEnqueue="{{ logship_queue_timeout_enqueue }}"
+           action.resumeRetryCount="-1" action.resumeInterval="10")
+}
+
+# Services that write their own files. Bound straight to the forward ruleset so the lines are shipped
+# but NOT copied into this host's /var/log/syslog (CrowdSec here parses that file).
+module(load="imfile")
+{% for f in logship_vps_files %}
+input(type="imfile" File="{{ f.path }}" Tag="{{ f.tag }}:" Facility="local6" Severity="{{ f.severity }}"
+      ruleset="hl_to_server")
+{% endfor %}
+
+# Everything that reaches rsyslog here (journald forwards to it) is shipped.
+call hl_to_server
+
+{% if logship_vps_crowdsec_via_syslog %}
+# The CrowdSec agent logs to stdout -> journald -> here. Keep it in its usual file and out of
+# /var/log/syslog, which CrowdSec itself reads.
+if $programname == "crowdsec" then {
+    action(type="omfile" file="/var/log/crowdsec.log" fileCreateMode="0640" fileGroup="adm")
+    stop
+}
+{% endif %}

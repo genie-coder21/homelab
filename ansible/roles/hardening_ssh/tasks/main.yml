@@ -1,0 +1,31 @@
+# hardening_ssh - SSH hardening on both Linux hosts.
+# SAFETY: this role NEVER restarts sshd. A changed drop-in notifies a handler that runs `sshd -t` first and
+# only then *reloads* ssh (existing sessions survive a reload). Always run --check --diff first: on the vps
+# a bad sshd config would lock you out of the public front door.
+- name: SSH hardening drop-in
+  ansible.builtin.template:
+    src: 10-hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Validate and reload sshd
+
+# sshd_config readable by root only. Mode only (no handler): sshd needs no reload for a mode change.
+- name: Main sshd_config permissions
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config
+    owner: root
+    group: root
+    mode: "{{ hardening_ssh_main_config_mode }}"
+
+# The drop-in pins HostKey anyway; this only stops a regenerated ECDSA key (ssh-keygen -A, a package
+# reinstall) lying around.
+- name: No ECDSA host key
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/ssh/ssh_host_ecdsa_key
+    - /etc/ssh/ssh_host_ecdsa_key.pub

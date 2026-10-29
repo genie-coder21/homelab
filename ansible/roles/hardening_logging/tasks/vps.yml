@@ -1,0 +1,74 @@
+# --- vps: ship everything to the server over the tunnel ----------------------------------------------
+# Outbound only, through the existing tunnel: no firewall change on this host.
+
+- name: CrowdSec agent logs to stdout (journald -> rsyslog) instead of its own root-only file
+  # rsyslog runs as user syslog and can't read a root-0600 file that is recreated 0600 on every
+  # rotation. Via journald it reaches rsyslog, which writes the same path (syslog:adm 0640) and ships it.
+  ansible.builtin.lineinfile:
+    path: /etc/crowdsec/config.yaml
+    regexp: '^(\s*)log_media:'
+    line: '  log_media: stdout'
+    backup: true
+  when: logship_vps_crowdsec_via_syslog
+  register: logship_cs_media
+
+- name: Move CrowdSec's old root-only log aside so rsyslog can create its own
+  ansible.builtin.command: mv /var/log/crowdsec.log /var/log/crowdsec.log.pre-rsyslog
+  args:
+    removes: /var/log/crowdsec.log
+  when: logship_cs_media is changed
+
+- name: Rotate the CrowdSec log now that rsyslog writes it
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/hl-crowdsec-syslog
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # roles/hardening_logging: CrowdSec agent log, written by rsyslog.
+      /var/log/crowdsec.log
+      {
+          weekly
+          rotate 4
+          missingok
+          notifempty
+          compress
+          delaycompress
+          postrotate
+              /usr/lib/rsyslog/rsyslog-rotate
+          endscript
+      }
+  when: logship_vps_crowdsec_via_syslog
+
+- name: rsyslog forward config (+ imfile for nginx)
+  ansible.builtin.template:
+    src: vps-logship.conf.j2
+    dest: /etc/rsyslog.d/10-hl-logship.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: logship_vps_conf
+  notify: Restart rsyslog
+
+- name: Tighten the CrowdSec log if rsyslog created it before fileCreateMode was set
+  ansible.builtin.shell: >-
+    find /var/log -maxdepth 1 -type f -name crowdsec.log \( -perm -o=r -o ! -group adm \)
+    -print -exec chgrp adm {} + -exec chmod 0640 {} +
+  register: logship_perm_fix
+  changed_when: logship_perm_fix.stdout | length > 0
+  when: logship_vps_crowdsec_via_syslog
+
+- name: Validate the whole rsyslog config before the restart
+  # Same AppArmor reason as on the server: validate the live config tree, not a temp file.
+  ansible.builtin.command: rsyslogd -N1
+  changed_when: false
+  when: logship_vps_conf is changed
+
+- name: Restart rsyslog before CrowdSec so the CrowdSec log route exists first
+  ansible.builtin.meta: flush_handlers
+
+- name: Restart the CrowdSec agent to pick up log_media
+  ansible.builtin.systemd_service:
+    name: crowdsec
+    state: restarted
+  when: logship_cs_media is changed

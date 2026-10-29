@@ -1,0 +1,90 @@
+# Gaming-PC end of the remote-log chain:   vps --> server --(TCP, disk-queued)--> gaming-pc (this playbook)
+# Installs nothing third-party: a Windows PowerShell 5.1 receiver run by a SYSTEM scheduled task,
+# plus ONE firewall rule that allows the syslog port from the server's LAN address only.
+#   ansible-playbook playbooks/logging-gaming-pc.yml --check --diff
+#   ansible-playbook playbooks/logging-gaming-pc.yml
+# Rollback: unregister the scheduled task, remove the firewall rule, delete the program folder
+# (and the log folder if the logs aren't wanted).
+- name: Gaming-PC syslog receiver
+  hosts: windows
+  gather_facts: false
+  vars:
+    logship_port: "<SYSLOG_PORT>"            # must match logship_port in roles/hardening_logging
+    logship_server_lan_ip: 192.0.2.10         # the only sender allowed (firewall rule + the script itself)
+    logship_win_root: <LOG_FOLDER>            # e.g. a folder on the PC's data disk
+    logship_win_keep_days: 180
+    logship_win_dir: C:\ProgramData\hl-logs
+    logship_task_name: hl-syslog-receiver
+  tasks:
+    - name: Program folder for the receiver script
+      # ProgramData, not a user profile: the task runs as SYSTEM and must survive user changes.
+      ansible.windows.win_file:
+        path: "{{ logship_win_dir }}"
+        state: directory
+
+    - name: Folder the logs land in
+      ansible.windows.win_file:
+        path: "{{ logship_win_root }}"
+        state: directory
+
+    - name: Receiver script
+      ansible.windows.win_copy:
+        src: ../roles/hardening_logging/files/hl-syslog-receiver.ps1
+        dest: "{{ logship_win_dir }}\\hl-syslog-receiver.ps1"
+      register: logship_script
+
+    - name: Firewall - syslog TCP from the server only
+      # The rule covers every network profile but only one remote address.
+      community.windows.win_firewall_rule:
+        name: hl syslog from server
+        description: rsyslog from the server (hardening_logging)
+        localport: "{{ logship_port }}"
+        protocol: tcp
+        remoteip: "{{ logship_server_lan_ip }}"
+        direction: in
+        action: allow
+        profiles: [domain, private, public]
+        enabled: true
+        state: present
+
+    - name: Scheduled task - receiver at startup as SYSTEM, restarted on failure
+      # Starts at boot (before anyone logs in), no time limit, survives sleep, ignores battery rules,
+      # and Task Scheduler restarts it every minute if it ever exits.
+      community.windows.win_scheduled_task:
+        name: "{{ logship_task_name }}"
+        description: Receives server / vps syslog over TCP (hardening_logging)
+        actions:
+          - path: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+            arguments: >-
+              -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden
+              -File "{{ logship_win_dir }}\hl-syslog-receiver.ps1"
+              -Port {{ logship_port }} -AllowedSender {{ logship_server_lan_ip }}
+              -LogRoot "{{ logship_win_root }}" -KeepDays {{ logship_win_keep_days }}
+        triggers:
+          - type: boot
+        username: SYSTEM
+        logon_type: service_account
+        run_level: highest
+        execution_time_limit: PT0S
+        restart_count: 999
+        restart_interval: PT1M
+        multiple_instances: 2              # ignore a second start while it runs
+        disallow_start_if_on_batteries: false
+        stop_if_going_on_batteries: false
+        start_when_available: true
+        allow_demand_start: true
+        enabled: true
+        state: present
+      register: logship_task
+
+    - name: (Re)start the receiver when the script or task changed, or it isn't running
+      ansible.windows.win_powershell:
+        script: |
+          $t = Get-ScheduledTask -TaskName '{{ logship_task_name }}'
+          $restart = [bool]$Ansible.Check -eq $false -and ($t.State -ne 'Running' -or '{{ logship_script.changed or logship_task.changed }}' -eq 'True')
+          if ($restart) {
+            if ($t.State -eq 'Running') { Stop-ScheduledTask -TaskName '{{ logship_task_name }}'; Start-Sleep 2 }
+            Start-ScheduledTask -TaskName '{{ logship_task_name }}'
+            $Ansible.Changed = $true
+          } else { $Ansible.Changed = $false }
+      when: not ansible_check_mode

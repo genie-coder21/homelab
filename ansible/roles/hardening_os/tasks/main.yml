@@ -1,0 +1,122 @@
+# hardening_os - small OS items. sysctl changes are applied per file with `sysctl -p <file>`, never --system.
+
+- name: Kernel hardening sysctl
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/90-hardening.conf
+    owner: root
+    group: root
+    mode: "{{ hardening_os_dropin_mode }}"
+    content: |
+      # {{ ansible_managed }} - role hardening_os
+      {% for k, v in hardening_os_sysctl.items() %}
+      {{ k }} = {{ v }}
+      {% endfor %}
+  notify: Apply hardening sysctl
+
+# TRAP: a 9x- name loses to /usr/lib/sysctl.d/99-protect-links.conf, so this file is named 99-zz.
+- name: Late sysctl (sorts after the distro's 99- file)
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-zz-hardening.conf
+    owner: root
+    group: root
+    mode: "{{ hardening_os_dropin_mode }}"
+    content: |
+      # {{ ansible_managed }} - role hardening_os
+      {% for k, v in hardening_os_sysctl_late.items() %}
+      {{ k }} = {{ v }}
+      {% endfor %}
+  notify: Apply late sysctl
+
+# No core dumps for login sessions (containers are not started through PAM, so unaffected).
+- name: No core dumps (limits.d)
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/90-hardening-nocore.conf
+    owner: root
+    group: root
+    mode: "{{ hardening_os_dropin_mode }}"
+    content: |
+      * hard core 0
+      * soft core 0
+
+- name: Module blacklist
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/90-hardening-blacklist.conf
+    owner: root
+    group: root
+    mode: "{{ hardening_os_dropin_mode }}"
+    content: |
+      # {{ ansible_managed }} - role hardening_os
+      {% for m in hardening_os_blacklist %}
+      install {{ m }} /bin/false
+      blacklist {{ m }}
+      {% endfor %}
+
+- name: Login banners
+  ansible.builtin.copy:
+    dest: "/etc/{{ item }}"
+    content: "{{ hardening_os_banner }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: [issue, issue.net]
+
+# Stronger password hashing for passwords set from now on.
+- name: SHA crypt rounds in login.defs
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: '^{{ item.key }}\s'
+    line: "{{ item.key }} {{ item.value }}"
+  loop: "{{ hardening_os_sha_rounds | dict2items }}"
+
+# apport rewrites fs.suid_dumpable at boot, undoing the sysctl above, so it stays off where installed.
+- name: apport disabled in its defaults file (where installed)
+  ansible.builtin.lineinfile:
+    path: /etc/default/apport
+    regexp: '^enabled='
+    line: enabled=0
+  when: hardening_os_is_server
+
+- name: apport units disabled (where installed)
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: false
+  loop: [apport.service, apport-autoreport.path]
+  when: hardening_os_is_server
+
+# Error reporting sends crash data off-box; its .path trigger stays disabled where installed.
+- name: whoopsie trigger disabled (where installed)
+  ansible.builtin.systemd_service:
+    name: whoopsie.path
+    enabled: false
+  when: hardening_os_is_server
+
+- name: cron config root-only
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "0{{ item.mode }}"
+  loop: "{{ hardening_os_vps_cron_overrides }}"
+  loop_control:
+    label: "{{ item.path }} {{ item.mode }}"
+  when: hardening_os_is_vps
+
+# ... and keep those modes across package upgrades.
+- name: Read current dpkg stat overrides
+  ansible.builtin.command: dpkg-statoverride --list
+  register: hardening_os_so
+  changed_when: false
+  check_mode: false
+  when: hardening_os_is_vps
+
+- name: Persist cron modes across package upgrades (dpkg-statoverride)
+  ansible.builtin.shell: |
+    set -e
+    dpkg-statoverride --list {{ item.path | quote }} >/dev/null && dpkg-statoverride --remove {{ item.path | quote }}
+    dpkg-statoverride --update --add {{ item.owner }} {{ item.group }} {{ item.mode }} {{ item.path | quote }}
+  loop: "{{ hardening_os_vps_cron_overrides }}"
+  loop_control:
+    label: "{{ item.path }} {{ item.mode }}"
+  when:
+    - hardening_os_is_vps
+    - (item.owner ~ ' ' ~ item.group ~ ' ' ~ item.mode ~ ' ' ~ item.path) not in hardening_os_so.stdout_lines

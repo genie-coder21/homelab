@@ -1,0 +1,5 @@
+# Drop-ins are only read after a daemon-reload. We never restart services from here:
+# a timer unit picks the drop-in up on its next run, a daemon only on its next (hand-made) restart.
+- name: systemd daemon-reload
+  ansible.builtin.systemd_service:
+    daemon_reload: true

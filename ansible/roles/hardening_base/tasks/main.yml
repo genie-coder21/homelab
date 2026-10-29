@@ -1,0 +1,21 @@
+# hardening_base - common items for the server and the vps.
+# Sub-tags let one item run alone, e.g.  --tags base_acct
+- name: Process accounting
+  ansible.builtin.import_tasks: acct.yml
+  tags: [base_acct]
+
+- name: Magic SysRq off
+  ansible.builtin.import_tasks: sysrq.yml
+  tags: [base_sysrq]
+
+- name: Compilers for root + group compilers only
+  ansible.builtin.import_tasks: compilers.yml
+  tags: [base_compilers]
+
+- name: Default umask 027
+  ansible.builtin.import_tasks: umask.yml
+  tags: [base_umask]
+
+- name: Boot-loader password for editing only
+  ansible.builtin.import_tasks: grub.yml
+  tags: [base_grub]

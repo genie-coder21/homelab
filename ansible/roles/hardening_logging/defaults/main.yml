@@ -1,0 +1,33 @@
+# Remote log shipping.
+#   vps --(TCP over the WireGuard tunnel)--> server --(TCP over the LAN)--> gaming-pc
+# Both hops use rsyslog omfwd with a size-capped disk queue, so an outage of either leg
+# queues on disk.
+
+logship_port: "<SYSLOG_PORT>"             # TCP; same port on the server (tunnel address only) and the gaming PC
+logship_tunnel_if: <TUNNEL_INTERFACE>     # server's WireGuard interface towards the vps
+logship_server_tunnel_ip: 198.51.100.2    # server end of the tunnel; the receiver binds ONLY here
+logship_vps_tunnel_ip: 198.51.100.1       # vps end of the tunnel; the only sender the server accepts
+logship_vps_name: vps                     # folder name under logship_remote_dir on the server
+logship_gaming_pc_ip: 192.0.2.20
+logship_server_lan_ip: 192.0.2.10         # the only sender the gaming PC accepts (firewall + receiver)
+
+# Disk queue caps (rsyslog queue.maxDiskSpace).
+logship_vps_queue_max: "<QUEUE_MAX_SIZE>"
+logship_server_queue_max: "<QUEUE_MAX_SIZE>"
+logship_queue_mem_msgs: 20000             # in-memory part of the queue before it spills to disk
+
+logship_remote_dir: /var/log/remote       # where the server files what it receives
+logship_remote_keep_days: 30              # logrotate: daily, compressed, this many days
+
+# Files on the vps that don't go through syslog themselves, shipped with imfile (tag -> path).
+# NEW SERVICE RULE: a service that writes its own log files (not syslog/journald) gets a line here.
+logship_vps_files:
+  - { tag: nginx-access, path: /var/log/nginx/access.log, severity: info }
+  - { tag: nginx-error,  path: /var/log/nginx/error.log,  severity: err }
+
+# The CrowdSec agent writes a root-only (0600) file that rsyslog (user syslog) can't read. Switch it to
+# stdout -> journald -> rsyslog, which writes the same file path itself (readable by group adm) and ships it.
+logship_vps_crowdsec_via_syslog: true
+
+# How long a full queue may block the sender before a line is handled (milliseconds). Set per site.
+logship_queue_timeout_enqueue: "<ENQUEUE_TIMEOUT>"

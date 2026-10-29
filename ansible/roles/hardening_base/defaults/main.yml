@@ -1,0 +1,31 @@
+# hardening_base knobs. Runs on the server and the vps.
+
+# --- process accounting ---------------------------------------------------------------------------
+# Days of /var/log/account/pacct kept by the package's own cron.daily rotation (gzip after day 1).
+hardening_base_acct_keep_days: 30
+
+# --- kernel.sysrq ---------------------------------------------------------------------------------
+# Own drop-in; sorts after the stock 10-magic-sysrq.conf. Other sysctl files belong to other roles.
+hardening_base_sysrq_file: /etc/sysctl.d/91-sysrq.conf
+hardening_base_sysrq_value: 0
+
+# --- compiler permissions -------------------------------------------------------------------------
+# The names an auditor resolves through PATH; the role follows the symlink and restricts the real file.
+hardening_base_compiler_names: [as, cc, clang, gcc]
+hardening_base_compiler_group: compilers
+# Accounts that may still compile.
+hardening_base_compiler_users: ["{{ ansible_user | default('<admin-user>') }}"]
+
+# --- default umask --------------------------------------------------------------------------------
+hardening_base_login_umask: "027"
+# Optional per-user umask overrides via pam_umask's GECOS "umask=" field: { user: full GECOS string }.
+hardening_base_umask_exceptions: {}
+
+# --- boot-loader password (editing / command line / recovery only; normal boot stays unattended) ---
+hardening_base_grub_user: <grub-superuser>
+# Name of the secret holding this host's boot-loader password, read from the TPM-bound store at run time.
+hardening_base_grub_secret: <grub-secret-name>
+# Separate random key the salt is derived from (never the password itself).
+hardening_base_grub_salt_secret: <grub-salt-secret-name>
+hardening_base_grub_password_file: /etc/grub.d/01_hardening_password
+hardening_base_grub_wrapper_file: /etc/grub.d/09_linux_unrestricted

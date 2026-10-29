@@ -1,0 +1,52 @@
+# Compilers/assemblers not executable by every account, so a compromised service user
+# can't build a local exploit on the box.  The real binaries become root:compilers 0750; accounts that
+# compile are in `compilers`.  Package maintainer scripts are unaffected.  Docker builds are
+# unaffected: they run the compilers inside the image, not the host's /usr/bin.
+- name: Group that may run compilers
+  ansible.builtin.group:
+    name: "{{ hardening_base_compiler_group }}"
+    system: true
+    state: present
+
+# append: true - never drop the account's other groups.  Takes effect at the next login.
+- name: Listed accounts may compile
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: "{{ hardening_base_compiler_group }}"
+    append: true
+  loop: "{{ hardening_base_compiler_users }}"
+  ignore_errors: "{{ ansible_check_mode }}"     # the group only exists after a real run
+
+# Same lookup an auditor does: name -> PATH -> follow symlinks -> real file (e.g. /usr/bin/as ->
+# /usr/bin/<arch>-linux-gnu-as).  Names not installed (e.g. gcc when absent) are skipped, so
+# installing gcc later and re-running the role covers it.
+- name: Find the real compiler binaries
+  ansible.builtin.shell: |
+    PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    for b in {{ hardening_base_compiler_names | join(' ') }}; do
+      p=$(command -v "$b") && readlink -f "$p"
+    done | sort -u
+  args:
+    executable: /bin/bash
+  register: hardening_base_compilers
+  changed_when: false
+  check_mode: false
+
+- name: Read current dpkg stat overrides for the compilers
+  ansible.builtin.shell: |
+    for f in {{ hardening_base_compilers.stdout_lines | map('quote') | join(' ') }}; do
+      dpkg-statoverride --list "$f" || echo "none none none $f"
+    done
+  register: hardening_base_compiler_so
+  changed_when: false
+  check_mode: false
+
+# dpkg-statoverride (not just chmod) so binutils/gcc upgrades re-apply root:compilers 0750 instead of
+# putting 0755 back.  --update also sets the mode on disk now.
+- name: Compilers root:compilers 0750, persistent across package upgrades
+  ansible.builtin.shell: |
+    set -e
+    dpkg-statoverride --list {{ item | quote }} >/dev/null && dpkg-statoverride --remove {{ item | quote }}
+    dpkg-statoverride --update --add root {{ hardening_base_compiler_group }} 0750 {{ item | quote }}
+  loop: "{{ hardening_base_compilers.stdout_lines }}"
+  when: ('root ' ~ hardening_base_compiler_group ~ ' 750 ' ~ item) not in hardening_base_compiler_so.stdout_lines

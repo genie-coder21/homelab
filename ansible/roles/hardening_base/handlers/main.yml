@@ -1,0 +1,5 @@
+# hardening_base handlers. None of these restart a long-running service.
+- name: Start process accounting
+  ansible.builtin.systemd_service:
+    name: acct
+    state: restarted

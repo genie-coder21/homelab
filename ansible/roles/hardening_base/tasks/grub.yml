@@ -1,0 +1,91 @@
+# GRUB superuser password, so nobody at a console can edit a boot entry (init=/bin/bash), open the GRUB shell, or boot recovery mode without it.
+# Normal boot stays UNATTENDED: every normal Linux entry + the Advanced submenu get --unrestricted.
+# A boot password must never block an unattended boot, so the role
+# builds a candidate grub.cfg first and only runs update-grub if hl-grub-verify proves it is safe.
+# The password is read from the TPM-bound store at run time; the PBKDF2 hash is computed on the controller
+# (files/grub_pbkdf2.py, deterministic per host => idempotent) and never stored in the repo.
+
+- name: Verify helper for generated grub.cfg files
+  ansible.builtin.copy:
+    src: hl-grub-verify
+    dest: /usr/local/sbin/hl-grub-verify
+    owner: root
+    group: root
+    mode: "0755"
+
+# Upgrade-safe way to stop the stock script running on its own: a stat override (dpkg re-applies it when
+# grub-common ships a new 10_linux; proven with a throw-away package).  The content keeps
+# updating; 09_linux_unrestricted runs it with sh.
+- name: Read stat override of 10_linux
+  ansible.builtin.command: dpkg-statoverride --list /etc/grub.d/10_linux
+  register: hardening_base_grub_so
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Wrapper that emits 10_linux entries as --unrestricted
+  ansible.builtin.copy:
+    src: 09_linux_unrestricted
+    dest: "{{ hardening_base_grub_wrapper_file }}"
+    owner: root
+    group: root
+    mode: "0755"
+  register: hardening_base_grub_wrapper
+
+- name: 10_linux non-executable (dpkg-statoverride, survives upgrades)
+  ansible.builtin.command: dpkg-statoverride --update --add root root 0644 /etc/grub.d/10_linux
+  when: hardening_base_grub_so.stdout | trim != 'root root 644 /etc/grub.d/10_linux'
+  register: hardening_base_grub_so_set
+
+# 0700: the hash is not secret-grade, but there's no reason for users to read it.
+- name: GRUB superuser + PBKDF2 password drop-in
+  ansible.builtin.template:
+    src: 01_hardening_password.j2
+    dest: "{{ hardening_base_grub_password_file }}"
+    owner: root
+    group: root
+    mode: "0700"
+  vars:
+    hardening_base_grub_hash: >-
+      {{ lookup('ansible.builtin.pipe', '{ hl-secret get ' ~ hardening_base_grub_secret
+         ~ '; echo; hl-secret get ' ~ hardening_base_grub_salt_secret
+         ~ '; } | python3 -I ' ~ role_path ~ '/files/grub_pbkdf2.py ' ~ inventory_hostname) }}
+  no_log: true
+  diff: false
+  register: hardening_base_grub_pw
+
+- name: Does the live grub.cfg already verify?
+  ansible.builtin.command: /usr/local/sbin/hl-grub-verify /boot/grub/grub.cfg
+  register: hardening_base_grub_live
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Build a candidate grub.cfg (the live one is untouched)
+  ansible.builtin.command: grub-mkconfig -o /root/grub.cfg.candidate
+  when: >-
+    hardening_base_grub_wrapper.changed or hardening_base_grub_pw.changed or
+    hardening_base_grub_so_set.changed or hardening_base_grub_live.rc != 0
+  changed_when: false
+  register: hardening_base_grub_candidate
+
+- name: Prove the candidate boots unattended (else stop before update-grub)
+  ansible.builtin.command: /usr/local/sbin/hl-grub-verify /root/grub.cfg.candidate
+  when: hardening_base_grub_candidate is not skipped
+  changed_when: false
+
+- name: Install the verified config (update-grub)
+  ansible.builtin.command: update-grub
+  when: hardening_base_grub_candidate is not skipped
+
+- name: Re-check the live grub.cfg
+  ansible.builtin.command: /usr/local/sbin/hl-grub-verify /boot/grub/grub.cfg
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Remove the candidate grub.cfg
+  ansible.builtin.file:
+    path: /root/grub.cfg.candidate
+    state: absent
+  when: hardening_base_grub_candidate is not skipped

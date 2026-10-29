@@ -1,0 +1,155 @@
+# hardening_systemd - systemd sandbox drop-ins for OUR services.
+#
+# hardening_systemd_units:  <inventory_hostname>:  <unit name>:  { options, why, daemon, enabled }
+#   options  systemd [Service] settings; true/false render as yes/no; a list renders one line per item.
+#   why      one line, copied into the drop-in as a comment.
+#   daemon   true = long-running, only picks the drop-in up on a deliberate restart (never done by the role).
+#   enabled  false = remove the drop-in again (rollback switch). Default true.
+#
+# ---------------------------------------------------------------------------------------------------
+# NEW SERVICE RULE (any new systemd unit we write, on either host):
+#   1. Read the unit and the script it runs; list what it touches: paths written, network, the docker
+#      socket, privileged or setuid/setgid helpers, /dev, and mounts the rest of the host must see.
+#   2. Pick the closest profile below, add an entry under the host, and add ReadWritePaths for every
+#      path it writes (strict profiles).
+#   3. `systemd-analyze security <unit>` before, then test the exact options WITHOUT installing them:
+#      run the command (or a harmless equivalent) through `systemd-run --wait --pipe` with every line of
+#      the rendered drop-in passed as -p, and compare with the same command run without the sandbox.
+#   4. ansible-playbook playbooks/hardening.yml --tags systemd --limit <host> --check --diff, then apply.
+#   5. Oneshot: start the unit and read its journal. Daemon: restart it once, deliberately, and check its
+#      function, not just "active".
+#   6. `systemd-analyze security <unit>` after; re-run the role: changed=0.
+#   Traps: NoNewPrivileges breaks setuid/setgid helpers. MemoryDenyWriteExecute breaks JITs: only on
+#   plain tools. Any mount-namespace option hides a mount the unit makes from the rest of the host.
+# ---------------------------------------------------------------------------------------------------
+
+# Building blocks (YAML anchors; merged with <<:).
+_hs_core: &core            # no mount namespace: safe even for units that mount things
+  ProtectClock: true
+  ProtectHostname: true
+  RestrictRealtime: true
+  RestrictSUIDSGID: true
+  LockPersonality: true
+  SystemCallArchitectures: native
+  RestrictNamespaces: true
+_hs_fs: &fs                # needs a private mount namespace
+  PrivateTmp: true
+  ProtectKernelTunables: true
+  ProtectKernelModules: true
+  ProtectKernelLogs: true
+  ProtectControlGroups: true
+# Root scripts keep the everyday root capabilities but lose the dangerous, never-needed ones (reboot, ptrace, BPF, raw MAC/audit control, immutable flags, mknod...).
+_hs_capdrop: &capdrop "~CAP_SYS_BOOT CAP_SYS_MODULE CAP_SYS_TIME CAP_WAKE_ALARM CAP_SYSLOG CAP_SYS_PTRACE CAP_MKNOD CAP_LINUX_IMMUTABLE CAP_SYS_PACCT CAP_SYS_TTY_CONFIG CAP_MAC_ADMIN CAP_MAC_OVERRIDE CAP_BPF CAP_PERFMON CAP_BLOCK_SUSPEND CAP_LEASE CAP_AUDIT_CONTROL CAP_AUDIT_READ CAP_IPC_LOCK CAP_CHECKPOINT_RESTORE"
+_hs_af_net: &af_net "AF_UNIX AF_INET AF_INET6 AF_NETLINK"
+_hs_af_ip: &af_ip "AF_UNIX AF_INET AF_INET6"
+
+_hs_user_strict: &user_strict
+  <<: [*core, *fs]
+  ProtectSystem: strict
+  ProtectHome: read-only
+  PrivateDevices: true
+  NoNewPrivileges: true
+  CapabilityBoundingSet: ""
+  AmbientCapabilities: ""
+  RestrictAddressFamilies: *af_ip
+  MemoryDenyWriteExecute: true
+  SystemCallFilter: "@system-service"
+  SystemCallErrorNumber: EPERM
+  ProtectProc: invisible
+
+_hs_root_docker: &root_docker
+  <<: [*core, *fs]
+  ProtectSystem: strict
+  ProtectHome: read-only
+  ReadWritePaths: "-/root/.docker"
+  PrivateDevices: true
+  PrivateNetwork: true          # the docker socket is a filesystem socket: still reachable
+  NoNewPrivileges: true
+  CapabilityBoundingSet: ""     # root owns the docker socket, so no capability is needed to use it
+  RestrictAddressFamilies: AF_UNIX
+  MemoryDenyWriteExecute: true
+  SystemCallFilter: "@system-service"
+  SystemCallErrorNumber: EPERM
+  ProtectProc: invisible
+
+_hs_root_tools: &root_tools
+  <<: [*core, *fs]
+  ProtectSystem: full
+  ProtectHome: read-only
+  ReadWritePaths: "-/root/.docker"
+  NoNewPrivileges: true
+  CapabilityBoundingSet: *capdrop
+  RestrictAddressFamilies: *af_net
+
+_hs_user_helpers: &user_helpers
+  <<: [*core, *fs]
+  ProtectSystem: full
+  ProtectHome: read-only
+  CapabilityBoundingSet: *capdrop
+  RestrictAddressFamilies: *af_net
+
+_hs_nomount: &nomount
+  <<: *core
+  NoNewPrivileges: true
+  CapabilityBoundingSet: *capdrop
+  RestrictAddressFamilies: *af_net
+
+# Example entries, one per profile. Unit names are placeholders; replace with your own.
+hardening_systemd_units:
+  server:
+    hl-example-root-tools.service:
+      why: "root oneshot that uses system tools"
+      options:
+        <<: *root_tools
+    hl-example-mount.service:
+      why: "mounts something the host must see, so only options without a mount namespace"
+      options:
+        <<: *nomount
+    hl-example-docker.service:
+      why: "root, only talks to the docker socket"
+      options:
+        <<: *root_docker
+    hl-example-user.service:
+      why: "plain user script"
+      options:
+        <<: *user_strict
+        ReadWritePaths: ["<writable-dir>"]
+    hl-example-helpers.service:
+      why: "user script that needs a privileged helper"
+      options:
+        <<: *user_helpers
+        ProtectSystem: strict
+  vps:
+    nginx.service:
+      daemon: true
+      why: "public front door: binds the web ports, master root -> unprivileged workers, writes its logs/cache/pid, proxies home over the tunnel; no exec, no JIT"
+      options:
+        <<: [*core, *fs]
+        ProtectSystem: full
+        ProtectHome: true
+        PrivateDevices: true
+        NoNewPrivileges: true
+        CapabilityBoundingSet: "CAP_NET_BIND_SERVICE CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_KILL CAP_SYS_RESOURCE"
+        RestrictAddressFamilies: *af_ip
+    crowdsec.service:
+      daemon: true
+      why: "CrowdSec agent: reads /var/log, writes its state + log, talks to the decision engine over the tunnel"
+      options:
+        <<: [*core, *fs]
+        ProtectSystem: full
+        ProtectHome: true
+        PrivateDevices: true
+        NoNewPrivileges: true
+        CapabilityBoundingSet: *capdrop
+        RestrictAddressFamilies: *af_net
+    crowdsec-firewall-bouncer.service:
+      daemon: true
+      why: "nftables bouncer: CAP_NET_ADMIN over netlink, pulls decisions from home over the tunnel, logs to /var/log"
+      options:
+        <<: [*core, *fs]
+        ProtectSystem: full
+        ProtectHome: true
+        PrivateDevices: true
+        NoNewPrivileges: true
+        CapabilityBoundingSet: "CAP_NET_ADMIN CAP_NET_RAW"
+        RestrictAddressFamilies: *af_net

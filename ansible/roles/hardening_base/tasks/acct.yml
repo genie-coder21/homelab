@@ -1,0 +1,32 @@
+# Process accounting (who ran what, when) for forensics.  The kernel writes one 64-byte
+# record per exited process to /var/log/account/pacct; `lastcomm` / `sa` read it.
+# Rotation is the package's own /etc/cron.daily/acct: savelog keeps N days (gzipped after day 1) and
+# re-runs accton on the fresh file, so the log never grows without limit.  The kernel also pauses
+# accounting by itself when the filesystem drops under 2 % free (kernel.acct = 4 2 30).
+- name: Install acct (process accounting)
+  ansible.builtin.apt:
+    name: acct
+    state: present
+    cache_valid_time: 3600
+
+# Retention knob: the cron.daily script reads ACCT_LOGGING from here.  ACCT_ENABLE=1 keeps the daily
+# cron restart turning accounting back on.
+- name: acct retention and enable flag
+  ansible.builtin.lineinfile:
+    path: /etc/default/acct
+    regexp: "^{{ item.key }}="
+    line: '{{ item.key }}="{{ item.value }}"'
+  loop:
+    - { key: ACCT_ENABLE, value: "1" }
+    - { key: ACCT_LOGGING, value: "{{ hardening_base_acct_keep_days }}" }
+  loop_control:
+    label: "{{ item.key }}"
+  ignore_errors: "{{ ansible_check_mode }}"     # file only exists once the package is installed
+
+# acct.service is a oneshot (accton on boot, accton off on stop); enabled so it comes back after reboot.
+- name: Process accounting enabled and running
+  ansible.builtin.systemd_service:
+    name: acct
+    enabled: true
+    state: started
+  ignore_errors: "{{ ansible_check_mode }}"     # unit only exists once the package is installed
