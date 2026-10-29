@@ -70,3 +70,14 @@ For this repository:
 - Scripts were renamed and stripped of site details.
 - The wrappers gained a root check, stack-name validation and a restrictive umask when writing `.env`.
 - The examples folder shows each pattern (template, guard, unit credential, mount dependency, SSH drop-in) as a standalone file.
+
+## 2026-10-28: A code-audit skill for the coding agent
+
+Cloudflare published an open-source security-audit skill for coding agents: a folder of
+Markdown guidance plus two small validators, no scanner binary. It was installed as a
+user-level skill by copying the folder from the official repository rather than through a
+third-party installer, and its validator self-tests were run first. In full audit mode it
+drives parallel hunter and verifier sub-agents over a codebase, writes structured findings
+checked against a schema, and refuses to execute target code outside an OS-enforced
+sandbox, reporting those checks as needing validation instead. It is meant for reviewing
+the lab's own scripts before they are published here.
