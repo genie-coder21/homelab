@@ -14,6 +14,7 @@ src=/etc/grub.d/10_linux
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 sh "$src" > "$tmp"
+# shellcheck disable=SC2016  # sed must see the literal GRUB variable name
 sed -i '/^[[:space:]]*\(menuentry\|submenu\) /{/-recovery-/!{/--unrestricted/!s/ \$menuentry_id_option / --unrestricted $menuentry_id_option /}}' "$tmp"
 # Fail-safe: if upstream ever changes the line format so the sed misses, abort grub-mkconfig (the old
 # grub.cfg is kept) rather than write a config whose default entry would stop at a password prompt.

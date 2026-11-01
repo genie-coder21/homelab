@@ -1,0 +1,17 @@
+# Relaxed base, run in strict mode so that anything still reported fails the check.
+# Syntax errors, duplicate keys, bad indentation and the like stay on.
+extends: relaxed
+
+yaml-files:
+  - "*.yml"
+  - "*.yaml"
+  - "*.yml.example"
+  - "*.yaml.example"
+  - "*.yaml.local.example"
+
+rules:
+  # Task names and inline comments in the playbooks read better on one line.
+  line-length: disable
+  # Lookup tables keep their columns aligned after the comma.
+  commas:
+    max-spaces-after: -1

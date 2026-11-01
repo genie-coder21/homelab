@@ -166,3 +166,25 @@ function checked.
 
 At the end the health checks matched the baseline on both hosts, and a full dry run of the hardening
 playbook reported `changed=0` on both Linux hosts and on the gaming PC.
+
+## 2026-11-01: static checks in CI
+
+The repository gained a GitHub Actions workflow that runs on every push and pull request. It lints the shell
+scripts, the PowerShell and the YAML, checks relative Markdown links offline, and runs a secret scanner over
+the full history. The workflow only has read access to the repository and uses no secrets. Its one action is
+pinned to a commit hash, and the binaries it downloads are pinned to a version and checked against a hash.
+
+**Decisions from the first run:**
+
+- **Template placeholders that didn't parse.** Two backup scripts had unquoted placeholders in their config
+  blocks, which is a shell syntax error and also stopped the linter from reading the rest of each file. They
+  are quoted now. Quoting them also let the linter check the rest of each file, and its findings were fixed.
+- **Single quotes on purpose.** A few scripts hand literal text to another interpreter (`sed`, a query
+  language, a script running inside a transient unit). Those lines carry an inline exception with the reason,
+  so the rule still applies everywhere else.
+- **PowerShell thresholds.** Errors and parse errors fail the check; warnings and informational advice are
+  printed for review. These scripts target Windows and can't run on the Linux runner. The single error was a
+  false positive, a random value converted only to be stored encrypted, and it is suppressed in that one
+  script with a written justification.
+- **YAML strictness.** The check runs in strict mode on a relaxed base, with line length and aligned columns
+  after commas allowed. Syntax errors, duplicate keys and indentation problems still fail it.

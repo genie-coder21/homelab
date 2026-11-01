@@ -11,6 +11,7 @@ set -euo pipefail
 CRED_NAME=${GUAC_JSON_CRED:-<GUAC_JSON_KEY_CRED>}            # credential name in the credstore
 CRED_PATH=${GUAC_JSON_CRED_PATH:-/etc/credstore.encrypted/$CRED_NAME}
 
+# shellcheck disable=SC2016  # the quoted script expands inside the transient unit, not here
 exec systemd-run --pipe --quiet --collect --unit="guac-token-$$" \
   --property=LoadCredentialEncrypted=guac-jsonkey:"$CRED_PATH" \
   /bin/bash -c '

@@ -4,6 +4,7 @@
 # Sunshine adds no firewall rules of its own: allow its documented TCP/UDP ports (plus mDNS,
 # UDP 5353, for Moonlight discovery) from the LAN in the guest firewall separately.
 #   .\guest-sunshine.ps1 -VMName <vm>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '', Justification = 'Random value generated at runtime, converted only to be stored in a DPAPI-protected credential file.')]
 param([Parameter(Mandatory)][string]$VMName)
 # ---- site config ---------------------------------------------------------------
 # Folder holding one DPAPI-encrypted guest-admin credential per VM (<vm>.xml), created

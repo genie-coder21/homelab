@@ -44,3 +44,7 @@ A small self-hosted infrastructure built and run at home: one always-on Ubuntu s
 - **Every script is a template.** Site-specific values sit in a config block at the top and must be filled in before use.
 - **Secrets never live in this repo.** Scripts read them at runtime from the host's encrypted credential store.
 - **Each HISTORY.md is the engineering log.** It records what was built, what broke, why, and how it was fixed.
+
+## CI
+
+Every push and pull request runs static checks in GitHub Actions: ShellCheck on the shell scripts, PSScriptAnalyzer on the PowerShell, yamllint on the YAML, an offline check of relative Markdown links, and gitleaks over the full history. The workflow uses read-only permissions and no secrets, pins its action to a full commit hash and its tools to exact versions, and verifies the checksum of the binaries it downloads.

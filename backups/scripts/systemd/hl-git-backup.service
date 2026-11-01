@@ -10,6 +10,6 @@ Group=<SERVICE_USER>
 LoadCredentialEncrypted=docs-deploy-key:/etc/credstore.encrypted/<DOCS_KEY_CRED_NAME>
 LoadCredentialEncrypted=project-deploy-key:/etc/credstore.encrypted/<PROJECT_KEY_CRED_NAME>
 # Root-only pattern file (personal data that must never be pushed). Not published.
-LoadCredential=personal.patterns:/etc/hl-git-backup/personal.patterns
+LoadCredential=<PATTERN_CRED>:/etc/hl-git-backup/<PATTERN_CRED>
 ExecStart=/usr/local/sbin/hl-git-backup
 TimeoutStartSec=300

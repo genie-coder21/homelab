@@ -5,9 +5,10 @@
 SHARE="//<BACKUP_HOST_IP>/<SHARE_NAME>"
 MNT=/mnt/backup-target
 REPO="$MNT/<VAULT_DIR>/server"
-SMB_CRED=/etc/credstore.encrypted/<SMB_CRED_NAME>
-RESTIC_CRED=/etc/credstore.encrypted/<RESTIC_CRED_NAME>
+SMB_CRED="/etc/credstore.encrypted/<SMB_CRED_NAME>"
+RESTIC_CRED="/etc/credstore.encrypted/<RESTIC_CRED_NAME>"
 # ----------------
+# shellcheck disable=SC2016  # the quoted script expands inside the transient unit, not here
 exec systemd-run --pipe --quiet --collect \
   --unit="hl-restic-$$" \
   --property=LoadCredentialEncrypted=smbcred:"$SMB_CRED" \
