@@ -117,3 +117,12 @@ A self-hosted ntfy server can't wake an iPhone by itself. `upstream-base-url: ht
 - **CrowdSec's stock `profiles.yaml`** has the commented-out `notifications:` lines between `decisions:` and `on_success:` in *each* profile. The first edit missed one profile, and the notification plugin showed as unused.
 - **Saving a notification target in many self-hosted apps also sends a test**, so expect to see every test twice.
 - **A log the monitor watches must be writable by whoever writes it.** A helper running under another account "ran fine" but logged nothing because the log folder wasn't writable for it. Check permissions before trusting silence.
+
+## Central log search
+
+Alerts say that something happened. Answering why used to mean searching files machine by machine, so the server now runs a small log stack: a collector, a log store and a search UI, all as containers.
+
+- **What goes in:** system, service and container logs, with new containers picked up automatically.
+- **Least privilege:** the collector never touches the container runtime's socket directly. It talks to a proxy that allows only a short list of read requests, and writes were tested and refused. Every container in this stack runs with a read-only root filesystem, resource limits and no privilege gain.
+- **Exposure:** the search UI is not reachable from the internet and requires authentication. The log store sits on an internal-only network.
+- **Backups:** configuration and dashboards are backed up.

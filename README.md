@@ -31,7 +31,7 @@ A small self-hosted infrastructure built and run at home: one always-on Ubuntu s
 | [backups](backups/) | Nightly restic backups to the gaming PC (woken on demand), an off-site Git mirror with pre-push secret scanning, and a boot-order guard for Docker |
 | [kids-gaming-vms](kids-gaming-vms/) | Windows game VMs for the kids in Hyper-V, launched from a web page, streamed with Sunshine/Moonlight, managed and put to sleep by the server |
 | [vps-front-door](vps-front-door/) | A small cloud VPS as the only public entry point, WireGuard back home, CrowdSec, layered firewalling, and the migration to a faster instance |
-| [notifications-monitoring](notifications-monitoring/) | Self-hosted ntfy push notifications, a server watchdog, and Windows toast notifications |
+| [notifications-monitoring](notifications-monitoring/) | Self-hosted ntfy push notifications, a server watchdog, Windows toast notifications, and central log search |
 | [secrets-and-hardening](secrets-and-hardening/) | TPM-bound secrets with systemd-creds, a compose wrapper that injects them, host hardening, sandboxed services, remote logging, and the standard every new service follows |
 | [local-llm](local-llm/) | An Ollama model on the gaming PC's GPU, woken on demand by the server |
 | [windows-power](windows-power/) | Power-plan switching scripts and shortcuts for the gaming PC |

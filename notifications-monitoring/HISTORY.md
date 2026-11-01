@@ -145,3 +145,13 @@ provider's API and only uses the SMTP relay when that fails. The relay-quota tim
 the filter's fallback log over the same SSH hop and sends one alert per new batch of
 fallbacks, with the last error text, since a lapsed token is the likely cause and needs a
 person to re-authorize.
+
+## 2026-11-01: central log search
+
+Notifications were working, but following one up meant grepping logs on each machine. A heavier commercial log platform was considered and rejected as too much for this hardware. A lighter open-source stack was chosen instead, using a collector, a log store and a dashboard UI.
+
+**How it went together.** The stack follows the same container standard as everything else. Images are scanned before deployment and re-scanned on update. The collector reaches the container runtime through a read-only proxy, and write requests were tested and refused.
+
+**What broke.** The log store rejects lines older than its schema start date, so that date has to be set well before the install date. A dashboard panel also stayed empty because a regex word boundary inside a double-quoted query string is read as a backspace; raw-string quoting fixed that.
+
+**Proof.** Marker lines written on the monitored hosts were found through the search API, and the dashboard was opened in a real browser to check it rendered without errors.
