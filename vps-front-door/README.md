@@ -240,6 +240,10 @@ old VPS and tunnel were kept untouched as a rollback path for a while, then reti
    new tunnel.
 5. Delete the instance and its boot-volume backup.
 
+## Infrastructure as code for the edge
+
+DNS records and the vps's cloud networking are described in Terraform, with state kept out of the repository. Credentials are fetched for one command at a time, guard rails refuse risky operations, and a scheduled plan reports drift.
+
 ## Traps and lessons
 
 - **Self-hosted alias service, three things that cost time:** the app's bundled migration

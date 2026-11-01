@@ -188,3 +188,11 @@ pinned to a commit hash, and the binaries it downloads are pinned to a version a
   script with a written justification.
 - **YAML strictness.** The check runs in strict mode on a relaxed base, with line length and aligned columns
   after commas allowed. Syntax errors, duplicate keys and indentation problems still fail it.
+
+## 2026-11-01: a benchmark scanner and a Kubernetes lab
+
+**Scanning.** The first sandbox for the scan gave wrong answers because it changed the mounts the checks inspect. It was adjusted until a sandboxed run matched an unsandboxed one rule for rule.
+
+**A Kubernetes lab.** A small k3s cluster runs in containers, managed with Helm and Kustomize, to learn on without changing real services. It is not reachable from the internet and holds only demo workloads.
+
+**A lesson from the lab.** A rollback test unloaded a kernel module that other networking relied on. Kernel networking modules can depend on each other in ways the module tools don't show, so unloading one can remove another. The hardening standard now forbids unloading the modules container networking depends on, and health checks are read unfiltered when testing a change.

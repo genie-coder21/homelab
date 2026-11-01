@@ -163,6 +163,10 @@ Logs leave each machine so an intruder can't quietly erase them:
 
 AIDE runs on the VPS on a schedule and leaves a short verdict. The alert is a **pull**: the server reads the verdict and sends the notification. **The internet-facing VPS holds no notification token**, and a scan that silently stopped running is caught as well, because a stale verdict is itself an alert.
 
+## Measuring against published benchmarks
+
+A SCAP scanner checks the hosts against published security benchmarks on a schedule, read-only. Its results guide hardening work and stay private. A benchmark score is treated as a planning tool, not a compliance claim. The benchmark content was reviewed for writes before its first run.
+
 ## The hardening standard for every new service
 
 A checklist every new service follows, so hardening doesn't decay as things are added:

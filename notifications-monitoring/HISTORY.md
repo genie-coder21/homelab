@@ -155,3 +155,11 @@ Notifications were working, but following one up meant grepping logs on each mac
 **What broke.** The log store rejects lines older than its schema start date, so that date has to be set well before the install date. A dashboard panel also stayed empty because a regex word boundary inside a double-quoted query string is read as a backspace; raw-string quoting fixed that.
 
 **Proof.** Marker lines written on the monitored hosts were found through the search API, and the dashboard was opened in a real browser to check it rendered without errors.
+
+## 2026-11-01: metrics, traces and a check from outside
+
+Logs were searchable, so the next step was numbers and timing. Metrics and traces joined the log stack under the same container standard. The container collector reads only kernel accounting, so it never needs the runtime's socket.
+
+**Tracing needed more than a switch.** Default instrumentation records more than route names and timing. An allowlist in the exporter keeps only those, and a test with marker values confirmed nothing else reached the wire.
+
+**The outside check found its own false alarm.** Some calls failed instantly for reasons unrelated to the sites. A narrow retry stops those from becoming false alerts, while a real outage still fails every try.

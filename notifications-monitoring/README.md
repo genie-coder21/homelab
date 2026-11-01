@@ -126,3 +126,11 @@ Alerts say that something happened. Answering why used to mean searching files m
 - **Least privilege:** the collector never touches the container runtime's socket directly. It talks to a proxy that allows only a short list of read requests, and writes were tested and refused. Every container in this stack runs with a read-only root filesystem, resource limits and no privilege gain.
 - **Exposure:** the search UI is not reachable from the internet and requires authentication. The log store sits on an internal-only network.
 - **Backups:** configuration and dashboards are backed up.
+
+## Metrics and traces
+
+The same stack now answers "how much" and "where did the time go" as well as "what happened".
+
+- **Metrics:** a time-series database collects host and per-container figures, from the server and over the private tunnel from the vps. The exporter on the vps listens only on the tunnel address. The container collector reads kernel accounting and has no access to the runtime's socket.
+- **Traces:** apps can send OpenTelemetry traces over an internal-only network to a trace store. An allowlist in the exporter keeps only route names and timing. A test confirmed that a missing trace store doesn't slow or fail requests.
+- **Checks from outside:** a small serverless function probes the public sites from another network, and failures raise an alert through the hub.

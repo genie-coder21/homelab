@@ -535,3 +535,7 @@ Two traps:
   config silences that. An inline comment after the value silently breaks the override.
 - Lowering the auth-tries limit means a client that offers many keys from an agent can be
   refused before it reaches the right one. Pin the identity per host on the client side.
+
+## 2026-11-01: importing the edge into Terraform
+
+Existing DNS and cloud resources were imported, not recreated, and the goal was a plan with zero changes. Drift alerts were tested on a scratch copy so no live record was touched.
