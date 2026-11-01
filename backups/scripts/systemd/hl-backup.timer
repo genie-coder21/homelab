@@ -2,8 +2,8 @@
 Description=Run the nightly server backup
 
 [Timer]
-OnCalendar=*-*-* 04:00:00
-RandomizedDelaySec=15m
+OnCalendar=<BACKUP_TIME>
+RandomizedDelaySec=<BACKUP_JITTER>
 Persistent=true
 
 [Install]

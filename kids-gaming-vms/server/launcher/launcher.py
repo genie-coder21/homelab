@@ -11,7 +11,7 @@ The flow, all of it asynchronous so the page can show progress:
     -> poll until the guest's VNC port answers
     -> hand off to Guacamole
 
-Standard library only - no pip dependencies to rot. Runs as a systemd service on the
+Standard library plus the distro's python3-cryptography - no pip dependencies to rot. Runs as a systemd service on the
 host rather than in a container, because it needs the SSH key to the gaming-pc and a
 broadcast socket for wake-on-LAN.
 """
@@ -28,6 +28,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
+
+from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 # ------------------------------------------------------------------ site config
 # Set these in the systemd unit. GUAC_URL is the Guacamole base URL as the kids'
@@ -128,21 +131,19 @@ def build_token(payload: dict) -> str | None:
 
         HMAC-SHA256(json, key) || json  ->  AES-128-CBC, null IV, no salt  ->  base64
 
-    openssl does the AES because the standard library has no cipher, and the whole
-    point of this service is zero pip dependencies. The key never touches disk.
+    Crypto runs in-process using python3-cryptography. The key never touches disk.
     """
     key = _cred("guac-jsonkey")
     if not key:
         return None
-    raw = json.dumps(payload).encode()
-    sig = hmac.new(bytes.fromhex(key), raw, hashlib.sha256).digest()
     try:
-        r = subprocess.run(
-            ["openssl", "enc", "-aes-128-cbc", "-K", key,
-             "-iv", "0" * 32, "-nosalt", "-a", "-A"],
-            input=sig + raw, capture_output=True, timeout=20)
-        return r.stdout.decode().strip() if r.returncode == 0 else None
-    except (OSError, subprocess.TimeoutExpired):
+        kb = bytes.fromhex(key)
+        raw = json.dumps(payload).encode()
+        pad = padding.PKCS7(128).padder()
+        plain = pad.update(hmac.new(kb, raw, hashlib.sha256).digest() + raw) + pad.finalize()
+        enc = Cipher(algorithms.AES(kb), modes.CBC(bytes(16))).encryptor()
+        return base64.b64encode(enc.update(plain) + enc.finalize()).decode()
+    except ValueError:
         return None
 
 

@@ -85,7 +85,7 @@ nobody is using them, and then the gaming-pc goes back to sleep.
 - **Native systemd services, not containers, for the launcher and watchdog.** They need an
   SSH key to the gaming-pc and a broadcast socket for wake-on-LAN. As a container that
   would mean host networking, raw-socket capabilities and a mounted private key, which is
-  a container in name only. They use only the standard library, so there are no pip
+  a container in name only. They use the standard library and one distribution package, so there are no pip
   dependencies to rot.
 - **Secrets through systemd credentials.** The VNC password and the Guacamole JSON signing
   key are `systemd-creds` encrypted (TPM-bound). The launcher unit loads them with

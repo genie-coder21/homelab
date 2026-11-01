@@ -158,10 +158,10 @@ This was the first real proof that the NetworkManager fix survives a restart.
 Remote users reported occasional stutter. Before touching the services, we measured each
 leg of the path on its own:
 - the home uplink directly to the internet ran at several hundred Mbps;
-- home to the VPS through the tunnel ran at about 45 Mbps;
-- the VPS out to the internet ran at about 49 Mbps.
+- home to the VPS through the tunnel was slow;
+- the VPS out to the internet was slow.
 
-The cause was the VPS. The free micro shape is capped at about 50 Mbps, shared by every
+The cause was the VPS. The small free shape has a low bandwidth cap, shared by every
 remote user at once, and the backend was nowhere near its own limits. As a stop-gap we set
 a per-client rate limit in the backend so a single heavy client couldn't fill the pipe.
 
@@ -181,9 +181,7 @@ helper's and not the live VPS's. Afterwards we confirmed only the intended resou
 left.
 
 **First attempt at a bigger instance.** The free Ampere A1 shape gets roughly 1 Gbps of
-network per OCPU. This account's free A1 allowance turned out to be 2 OCPU / 12 GB, not
-the 4 / 24 that older guides mention. The launch failed with "Out of host capacity" in
-every availability domain.
+network per OCPU. The launch failed with "Out of host capacity".
 
 That first manual launch also took over five minutes to fail, because the CLI quietly
 retries with backoff. Changing regions isn't an option, since Always Free resources only
@@ -196,7 +194,7 @@ systemd timer runs a script about every five minutes. It was designed around one
   lookup fails for any reason.
 - Launches use the CLI's no-retry flag, so a "no capacity" answer comes back in seconds and
   runs don't overlap. A lock file guards against overlap anyway.
-- Each availability domain is tried once per round.
+- Each placement option is tried once per round.
 - A successful launch isn't treated as a win straight away. The next round has to see the
   instance RUNNING and log in over SSH. Only then does the script write a result file, send
   a notification and disable its own timer.
@@ -218,11 +216,7 @@ and the bursts were hitting the cap even when the average was low. So the cap wa
 and it would become a hard limit with a handful of simultaneous users.
 
 The overnight hunter had made over a hundred attempts, all "no capacity". Upgrading the
-account to pay-as-you-go usually gets capacity sooner, so we wrote a plan with guard rails:
-- a tenancy quota pinning compute and storage to the free amounts, so overspending is
-  impossible rather than merely alerted on;
-- a $1 budget alert as a second line;
-- a clear list of what would ever be billable.
+account to pay-as-you-go usually gets capacity sooner, so we wrote a plan with cost guard rails.
 
 The owner paused that plan. The hunter kept running on the free account in the meantime.
 
@@ -268,11 +262,8 @@ test client only, then checked:
 A real transfer ran about five times faster than through the old VPS, and the new
 bottleneck was the home uplink, as expected.
 
-**Cutover.** The public names are kept current by a dynamic-DNS updater that registers
-whatever address it runs from. That explained an earlier puzzle: editing the record by
-hand was undone within minutes by the old VPS's updater. Cutover meant turning the updater
-off on the old VPS and on for the new one, with a short TTL so either direction takes
-effect quickly. Rollback is the same change in reverse.
+**Cutover.** The public names moved to the new VPS with a short TTL, so either direction
+takes effect quickly. Rollback is the same change in reverse.
 
 Once DNS moved, we confirmed both services were reachable through public DNS. We then
 raised the per-client rate limit, since the pipe was no longer the limit, and pointed the
@@ -303,7 +294,7 @@ scheduled. The standby instance got the same treatment.
 
 The procedure, worth writing down because it is the one to repeat:
 
-1. Confirm nobody is streaming (no media connections through the tunnel, only scanner
+1. Confirm nobody is streaming (no active sessions through the tunnel, only scanner
    noise in the proxy logs).
 2. Full upgrade, autoremove and snap refresh, non-interactively and keeping existing config
    files. One package was *phased* (Ubuntu's gradual rollout holds it back) and had to be
@@ -313,7 +304,7 @@ The procedure, worth writing down because it is the one to repeat:
 4. Reboot. It came back in under a minute.
 5. After the reboot, check the things that could silently stay down: the saved firewall
    rules were restored with the final reject rule in place, the tunnel re-handshaked, the
-   proxy served the media server's health endpoint through the tunnel and the public names
+   proxy served a backend's health endpoint through the tunnel and the public names
    answered, the mesh-VPN node came up, and the CrowdSec agent and firewall bouncer were
    active with their ban tables back. The home-side CrowdSec API showed the agent
    heartbeating and the bouncer pulling.

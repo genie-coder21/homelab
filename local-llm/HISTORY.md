@@ -4,7 +4,7 @@
 
 ### The ask
 
-A job-application automation tool running on the server could already fill most of a form deterministically (profile fields, yes/no screening questions, standard choices). What it couldn't do was **free-text essay questions**. The owner didn't want to deal with a hosted LLM API, its keys and its bills, so the question became whether a local model could do it.
+An internal form-automation tool running on the server could already fill most of a form deterministically (profile fields, yes/no screening questions, standard choices). What it couldn't do was **free-text essay questions**. The owner didn't want to deal with a hosted LLM API, its keys and its bills, so the question became whether a local model could do it.
 
 The tool already had a single hook for this: one function called only for questions nothing else could answer, whose output was always stored **unapproved** so the application went to human review instead of being submitted. A local backend only had to slot in behind that function.
 

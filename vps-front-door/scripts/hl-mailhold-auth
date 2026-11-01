@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -I
-"""One-time Gmail API authorization for the hold filter's Gmail API delivery (run as root on the mail VPS).
+"""One-time upstream mail API authorization for the hold filter's upstream mail API delivery (run as root on the mail VPS).
 
   hl-mailhold-auth url      reads client_id and client_secret (two lines) on stdin, stores them, prints the consent URL
   hl-mailhold-auth finish   reads the redirect URL (or bare code) on stdin, exchanges it, stores the refresh token

@@ -1,6 +1,5 @@
 #!/bin/sh
-# Check a generated grub.cfg: superuser + PBKDF2 password present, default entry and every normal Linux entry
-# (and the Advanced submenu) --unrestricted, recovery entries restricted, syntax valid.  Exit 0 = OK.
+# Check a generated grub.cfg against the policy and for valid syntax.  Exit 0 = OK.
 # Usage: hl-grub-verify /boot/grub/grub.cfg
 cfg=${1:-/boot/grub/grub.cfg}; rc=0
 grep -q '^set superusers=' "$cfg" || { echo "FAIL no superusers"; rc=1; }

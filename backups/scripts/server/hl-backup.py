@@ -2,7 +2,7 @@
 """Nightly file-level backup of the server to a restic repository on the gaming-pc.
 
 Flow: wait until services are idle -> make sure the backup share is reachable
-(waking the gaming-pc with wake-on-LAN if needed) -> stop containers for a
+(waking the gaming-pc with wake-on-LAN if needed) -> quiesce apps for a
 consistent copy -> restic backup -> restart containers -> apply retention ->
 notify.
 
@@ -28,7 +28,7 @@ BROADCAST = "<LAN_BROADCAST_ADDR>"             # e.g. 192.0.2.255
 MOUNT = Path("/mnt/backup-target")
 REPO = MOUNT / "<VAULT_DIR>/server"
 
-MOUNT_TRIES = 24                               # 24 x 15 min = 6 h of grace
+MOUNT_TRIES = 24                               # grace window
 MOUNT_RETRY = timedelta(minutes=15)
 
 # Idle check: a command that exits 0 when it is OK to back up now, and non-zero
@@ -146,7 +146,7 @@ def stop_all() -> None:
 def start_all() -> None:
     ids = list(_STOPPED)
     if not ids:
-        # Crash path: we do not know what we stopped, so bring every stack up.
+        # Crash path: state unknown, so bring every stack up.
         for s in stacks():
             ids += containers(s, running_only=False)
     if not ids:
@@ -288,7 +288,7 @@ def queue_notification(title: str, body: str, urgent: bool) -> None:
 
 
 def push_pending() -> None:
-    """The notification server is itself a container that the backup stops, so a
+    """The notification server is itself quiesced during the backup, so a
     message sent from inside main() could be lost. Send at the very end, after
     waiting up to 2 min for the server to be healthy again."""
     if not _PUSH:

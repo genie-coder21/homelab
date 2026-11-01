@@ -21,7 +21,7 @@ hardening_base_login_umask: "027"
 # Optional per-user umask overrides via pam_umask's GECOS "umask=" field: { user: full GECOS string }.
 hardening_base_umask_exceptions: {}
 
-# --- boot-loader password (editing / command line / recovery only; normal boot stays unattended) ---
+# --- boot-loader password ---
 hardening_base_grub_user: <grub-superuser>
 # Name of the secret holding this host's boot-loader password, read from the TPM-bound store at run time.
 hardening_base_grub_secret: <grub-secret-name>

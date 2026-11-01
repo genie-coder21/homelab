@@ -49,7 +49,7 @@ Tokens live in the server's TPM-bound secret store (see `../secrets-and-hardenin
 | `scripts/ntfy-server/` | server | compose file and `server.yml` for the ntfy container |
 | `scripts/server/hl-notify` | server | one-line publisher for any script. It **always exits 0**, so a dead hub can never fail the job that called it, and it logs dropped messages to the journal |
 | `scripts/server/hl-watchdog` + `.timer` | server | health checks every 5 min (below) |
-| `scripts/server/hl-mailquota` + `.service` / `.timer` | server | every 5 min: counts the mail VPS's relayed sends in the last 24 h over SSH and publishes the first crossing of 50 / 75 / 90 / 98 % of the relay's daily allowance each day, plus one line each morning with yesterday's total; since 2026-10-28 it also alerts when the mail filter's Gmail API import starts falling back to the relay |
+| `scripts/server/hl-mailquota` + `.service` / `.timer` | server | every 5 min: counts the mail VPS's relayed sends in the last 24 h over SSH and publishes the first crossing of 50 / 75 / 90 / 98 % of the relay's daily allowance each day, plus one line each morning with yesterday's total; since 2026-10-28 it also alerts when the mail filter's upstream mail API import starts falling back to the relay |
 | `scripts/server/hl-notify-flush` | server | the older local fallback: queued backup results become desktop popups at the next graphical login |
 | `scripts/windows/ntfy-subscriber.ps1` | gaming-pc | streams the topics and raises native Windows toasts |
 | `scripts/windows/send-ntfy.ps1` | gaming-pc | publishes from Windows (JSON, UTF-8 safe) |
@@ -64,7 +64,7 @@ Tokens live in the server's TPM-bound secret store (see `../secrets-and-hardenin
 |---|---|
 | mount | the data disk is not mounted |
 | container-mounts | a running container sees an **empty** bind mount of the data disk while the host sees files. This catches the Docker-started-before-the-disk race (see HISTORY) |
-| containers | any container is not running or is unhealthy. It stands down while the backup has containers stopped on purpose |
+| containers | any container is not running or is unhealthy. It accounts for planned maintenance |
 | disk | `/` or the data disk is at least 90 % full |
 | tunnel | no WireGuard handshake with the VPS for 3 minutes |
 | public | the fronted web services don't answer 200 through the VPS (3 times in a row) |
@@ -103,7 +103,7 @@ A self-hosted ntfy server can't wake an iPhone by itself. `upstream-base-url: ht
 - **ntfy over a SaaS push service.** It needs no account, the container is tiny, many self-hosted apps speak it natively, and anything else can publish with one HTTP POST.
 - **Not exposed to the internet.** The hub is reachable from the LAN and the VPN only. Nothing on it needs to be public.
 - **A native toast subscriber instead of the web app (PWA).** The original plan was to install the ntfy web app as a PWA, but browsers only allow notifications over HTTPS and this server is deliberately plain HTTP on the LAN.
-- **The backup sends its result after it finishes, not during the run.** The backup stops every container, the hub included, so a message sent mid-run would be lost. Results are queued and pushed once containers are back.
+- **The backup sends its result after it finishes, not during the run.** The backup briefly quiesces the applications, the hub included, so a message sent mid-run would be lost. Results are queued and pushed once containers are back.
 - **Alert on change, not on state.** Both the watchdog and the Windows monitor keep state, so a problem that lasts all night produces one alert plus a reminder every few hours, not 100 identical pushes.
 
 ## Traps and lessons learned

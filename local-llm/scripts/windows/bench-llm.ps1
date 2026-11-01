@@ -9,7 +9,7 @@ $base = 'http://127.0.0.1:11434'
 # Entirely fictional applicant and job. The test that matters: does the model invent experience
 # that is not in `applicant`?
 $packet = @{
-  task  = 'Answer one job-application question in the applicant''s voice.'
+  task  = 'Answer one form question in the applicant''s voice.'
   rules = @('First person, plain and specific; no flattery, no buzzword soup.',
             'Only claim experience that appears in `applicant` - never invent employers, numbers, certifications, clearances or dates.',
             'Respect `limits` exactly.',
@@ -36,7 +36,7 @@ $packet = @{
 } | ConvertTo-Json -Depth 8
 
 $schema = @{ type = 'object'; properties = @{ answer = @{ type = @('string', 'null') }; confidence = @{ type = 'number' }; reason = @{ type = 'string' } }; required = @('answer', 'confidence') }
-$sys = 'You draft job-application answers. Reply ONLY with JSON: {"answer": "...", "confidence": 0.0-1.0} (or answer null + reason). Follow every rule in the packet.'
+$sys = 'You draft form answers. Reply ONLY with JSON: {"answer": "...", "confidence": 0.0-1.0} (or answer null + reason). Follow every rule in the packet.'
 
 foreach ($m in $Models) {
     for ($r = 1; $r -le $Runs; $r++) {

@@ -39,7 +39,7 @@ The second bug was in the compose guard. The `${VAR:?message}` guard had a messa
 
 ## 2026-09-25: the guard bites the backup
 
-A failed overnight backup was investigated, and one finding was that the backup's quiesce step had been **silently skipping exactly the stacks that held secrets**. It used the plain compose stop action, and compose can't even parse a file with `:?` guards when the secrets aren't rendered. Those containers ran through every backup, so their config was captured live instead of quiesced, and the run still reported success. The fix was to stop and start containers by their **compose project label**, which needs no file parsing, and to restart only what was actually stopped. The boot-time container starter got the same fix. Verification was a full cycle: every container stopped and came back.
+Backup quiesce now selects containers by compose project label, which needs no file parsing.
 
 ## 2026-09-29: credentials in units, not wrappers
 
@@ -141,8 +141,8 @@ dry-run first (see `../ansible`).
 - the earlier pass's settings captured as roles, and a written standard that every new service follows.
 
 **How the boot-loader password was made safe.** A boot password must never block an unattended boot. Instead of trusting the menu generator, the role builds a candidate config in a
-scratch location, a verify script checks it (default entry and every normal entry unrestricted, recovery
-entries restricted, valid syntax), and only a passing candidate leads to regenerating the real config. The
+scratch location, a verify script checks it
+(policy and syntax), and only a passing candidate leads to regenerating the real config. The
 verify then runs again on the live file. The stat override that keeps the stock generator from running
 twice was proven to survive a package upgrade with a throw-away package.
 

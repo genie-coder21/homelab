@@ -1,8 +1,8 @@
 [Unit]
-Description=mailhold digest at 20:00 local time
+Description=daily mailhold digest
 
 [Timer]
-OnCalendar=*-*-* 20:00:00
+OnCalendar=<DIGEST_TIME>
 Persistent=true
 
 [Install]

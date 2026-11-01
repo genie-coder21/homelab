@@ -1,4 +1,4 @@
-"""hl_gmail_import: put a message straight into the user's Gmail mailbox with the Gmail API (messages.import).
+"""hl_gmail_import: put a message straight into the user's Gmail mailbox with the upstream mail API (messages.import).
 
 Why: the mail VPS has no outbound path except the mailbox provider's authenticated SMTP relay, which rewrites
 From to the authenticating account, so every forward shows up as "me". messages.import keeps the headers

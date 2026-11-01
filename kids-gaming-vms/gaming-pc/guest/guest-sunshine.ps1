@@ -1,6 +1,6 @@
 # guest-sunshine.ps1 - install Sunshine (Moonlight host) in a kids' VM, from the HOST via PowerShell Direct.
 # Per VM (never cloned: Sunshine keeps a unique identity). No GPU in these VMs -> software (x264) encoding.
-# Web UI login is generated once (random), shared by the kids' VMs, and DPAPI-stored in $CredDir.
+# Web UI login is generated once (random) and DPAPI-stored in $CredDir.
 # Sunshine adds no firewall rules of its own: allow its documented TCP/UDP ports (plus mDNS,
 # UDP 5353, for Moonlight discovery) from the LAN in the guest firewall separately.
 #   .\guest-sunshine.ps1 -VMName <vm>
@@ -12,11 +12,11 @@ param([Parameter(Mandatory)][string]$VMName)
 $CredDir = '<GUEST_CRED_DIR>'
 # ---------------------------------------------------------------------------------
 $cred = Import-Clixml "$CredDir\$VMName.xml"
-$wf = "$CredDir\sunshine-webui.xml"
+$wf = "$CredDir\<SUNSHINE_WEB_CRED_FILE>"
 if (-not (Test-Path $wf)) {
     $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'.ToCharArray()
     $b = New-Object byte[] 16; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
-    New-Object PSCredential 'sunshine', (ConvertTo-SecureString (-join ($b | ForEach-Object { $chars[$_ % $chars.Length] })) -AsPlainText -Force) | Export-Clixml $wf
+    New-Object PSCredential '<SUNSHINE_WEB_USER>', (ConvertTo-SecureString (-join ($b | ForEach-Object { $chars[$_ % $chars.Length] })) -AsPlainText -Force) | Export-Clixml $wf
 }
 $web = (Import-Clixml $wf).GetNetworkCredential()
 

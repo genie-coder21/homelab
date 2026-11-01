@@ -17,7 +17,7 @@ $CredDir = '<GUEST_CRED_DIR>'
 $VncAllowFrom = @('<SERVER_IP>', '<GAMING_PC_IP>')
 
 $cred  = Import-Clixml "$CredDir\$VMName.xml"
-$vncpw = (Import-Clixml "$CredDir\vnc-password.xml").GetNetworkCredential().Password
+$vncpw = (Import-Clixml "$CredDir\<VNC_CRED_FILE>").GetNetworkCredential().Password
 
 Invoke-Command -VMName $VMName -Credential $cred -ArgumentList $vncpw, $VncAllowFrom -ScriptBlock {
     param($vncpw, $VncAllowFrom)

@@ -29,7 +29,7 @@ if os.environ["TAGS"]:  d["tags"] = [t for t in os.environ["TAGS"].split(",") if
 if os.environ["CLICK"]: d["click"] = os.environ["CLICK"]
 print(json.dumps(d))')
 
-curl -s -m 15 -o /dev/null -H "Authorization: Bearer $tok" \
+printf 'header = "Authorization: Bearer %s"\n' "$tok" | curl -s -m 15 -o /dev/null -K - \
   -H "Content-Type: application/json" --data-binary "$body" "$NTFY_URL/" \
   || logger -t hl-notify "ntfy unreachable; dropped: $title"
 exit 0

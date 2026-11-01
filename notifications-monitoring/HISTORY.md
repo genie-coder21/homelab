@@ -29,7 +29,7 @@ The plan already flagged one problem with the native route: commands sent to Win
 
 ## 2026-09-25: a silent failure that shaped the watchdog
 
-A failed overnight backup was investigated and turned up a second, worse problem. The backup's container stop/start step had been silently skipping some stacks, while the run still reported success. The lesson was that a job's own success report is not enough. Something independent should check outcomes, such as "when did the last good backup finish?", instead of trusting the job. The watchdog's backup-freshness check follows the same principle.
+A failed overnight backup was investigated and turned up a second problem: a run could report success without every step having done its work. The lesson was that a job's own success report is not enough. Something independent should check outcomes, such as "when did the last good backup finish?", instead of trusting the job. The watchdog's backup-freshness check follows the same principle.
 
 ## 2026-09-30: containers went blind for hours
 
@@ -57,7 +57,7 @@ For the phone, the server was given the upstream base URL. Only a poll request (
 **Wiring the sources:**
 - **Self-hosted apps.** Native ntfy targets were configured and tested from each app's settings. Saving a target also sends a test, so each test arrived twice, which is expected.
 - **Intrusion prevention.** It got an HTTP notification plugin pointing at the security topic, batched to at most one message every two minutes so an attack wave doesn't flood the phone. Its token is injected from the secret store when the container starts. The first edit to the stock profiles file missed a commented `notifications:` block in the second profile, and the plugin showed as unused until both profiles referenced it.
-- **The backup.** This needed a design change. The backup stops every container to get a consistent copy, and that includes the hub. A message sent mid-run would be lost. Results are now queued during the run and pushed after the containers are back. Retention (pruning) failures, which had previously been silent, now alert too.
+- **The backup.** This needed a design change. The backup briefly quiesces the applications to get a consistent copy, and that includes the hub. A message sent mid-run would be lost. Results are now queued during the run and pushed after the containers are back. Retention (pruning) failures, which had previously been silent, now alert too.
 
 ### The watchdog
 
@@ -134,7 +134,7 @@ way out, running into that allowance would silently defer mail until the next da
 nothing would say so. A small timer on the server now reads the VPS mail log over SSH every
 five minutes, counts successful relay deliveries in the rolling 24 hours, and publishes an
 ntfy message the first time each day the count crosses 50, 75, 90 and 98 percent of the
-allowance, with the priority rising at the top two steps. Around eight in the morning it
+allowance, with the priority rising at the top two steps. Once a day it
 also publishes one line with the previous day's total. The token is a systemd credential,
 and state (which steps fired today) lives in the unit's state directory.
 

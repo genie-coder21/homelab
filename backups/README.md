@@ -7,14 +7,14 @@ Nightly, encrypted, incremental file-level backups of the always-on Ubuntu **ser
 ```
                          server (Ubuntu, always on)
   +---------------------------------------------------------------------+
-  |  hl-backup.timer  04:00 (+/-15 min, Persistent=true)                |
+  |  hl-backup.timer  <BACKUP_TIME> (randomized, Persistent=true)         |
   |        |                                                            |
   |        v                                                            |
   |  hl-backup.py                                                       |
   |   1. release the browse mount (hl-backup-browse.service)            |
   |   2. wait until services are idle (re-check 5 min, max 6 h)         |
   |   3. mount SMB share ---- fails? --> wake-on-LAN, retry  ------+    |
-  |   4. stop containers (by compose project label)                |    |
+  |   4. quiesce applications (by project label)                   |    |
   |   5. restic backup  /, /home, /opt   (encrypted client-side)   |    |
   |   6. start only the containers it stopped                      |    |
   |   7. forget --prune (unlock stale locks, retry once)           |    |
@@ -48,10 +48,10 @@ Nightly, encrypted, incremental file-level backups of the always-on Ubuntu **ser
 - **File-level restic, not disk images.** The server's root is ext4, which cannot snapshot, so an image would mean either downtime or an inconsistent copy, and each image is a full copy. restic stores each unique chunk once. Every snapshot browses as a complete system but only costs what changed.
 - **Encrypted before it leaves the server.** The Windows side only ever sees opaque blobs, so anyone who can read that share still can't read the backup.
 - **TPM-bound secrets.** The SMB credentials and the repository password are `systemd-creds` blobs sealed to the server's TPM and delivered to the job through `LoadCredentialEncrypted=`. They are useless if copied to another machine and never appear on a command line or in a plain file.
-- **Quiesce the containers.** A graceful stop makes each app close its SQLite databases properly. On an incremental run the containers are down for about 40 seconds. A restore test confirmed it: restored databases passed `integrity_check` with full table counts, and restored config files matched by checksum.
+- **Quiesce the containers.** A graceful stop makes each app close its SQLite databases properly. On an incremental run the downtime is brief. A restore test confirmed it: restored databases passed `integrity_check` with full table counts, and restored config files matched by checksum.
 - **Wait until services are idle.** Before stopping anything, the job asks whether anyone is actively using a service. If so, it checks again every 5 minutes. After 6 hours it backs up anyway, because a missed backup is worse than a 40-second blip. That case is recorded in the status file. If the idle check itself can't run, the job treats the services as idle.
-- **Wake the target instead of keeping it awake.** The gaming-pc sleeps after 15 idle minutes. Rather than change its power plan, the job sends a wake-on-LAN magic packet, waits a minute and retries the mount. It keeps retrying every 15 minutes for up to 6 hours. In practice the PC wakes in under 10 seconds.
-- **Notify after the run, not during it.** The push-notification server is itself one of the containers the backup stops, so messages are queued and sent once everything is back up and the server reports healthy. Failures and retention problems go to a high-priority topic. A separate watchdog alerts if the last good backup is more than 30 hours old. Status is also written to a machine-readable JSON file.
+- **Wake the target instead of keeping it awake.** The gaming-pc sleeps when idle. Rather than change its power plan, the job sends a wake-on-LAN magic packet, waits a minute and retries the mount. It keeps retrying for a generous window. In practice the PC wakes in under 10 seconds.
+- **Notify after the run, not during it.** The push-notification server is itself one of the applications the backup quiesces, so messages are queued and sent once everything is back up and the server reports healthy. Failures and retention problems go to a high-priority topic. A separate watchdog alerts if the last good backup is more than 30 hours old. Status is also written to a machine-readable JSON file.
 - **Browsable restores.** A small service keeps the repository FUSE-mounted, so every snapshot appears as a dated folder that can be browsed like any other directory. A wrapper (`hl-restic`) runs any restic command with the TPM credentials, so restores never need the password typed.
 - **Off-site copy of what matters most.** The docs wiki and a private code project are pushed to private GitHub repos every 15 minutes. Each repo has its own deploy key, with write access to that one repo only, held in the TPM credstore. Before every push, the docs are scanned for anything secret-looking, and the project's new lines are scanned against a root-only personal-data pattern list. A hit blocks the push and fails the unit.
 - **Boot order guard.** A Docker drop-in with `RequiresMountsFor=` on the data disk means Docker can't start until the disk is mounted.

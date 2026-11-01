@@ -1,9 +1,7 @@
 #!/bin/sh
 # Managed by Ansible (roles/hardening_base).  Do not edit by hand.
 #
-# Stock /etc/grub.d/10_linux, with every normal (non-recovery) menuentry and the "Advanced options" submenu
-# marked --unrestricted, so a GRUB superuser password (01_hardening_password) only guards editing an entry,
-# the GRUB command line and recovery mode — the box still boots unattended.
+# Wraps the stock /etc/grub.d/10_linux for the boot-loader password policy.
 # 10_linux itself is kept non-executable by `dpkg-statoverride root root 0644 /etc/grub.d/10_linux` (survives
 # grub-common upgrades), so it isn't run twice; it is run here with sh, so upstream changes still flow through.
 # This file sorts BEFORE 10_linux on purpose: even if 10_linux ever became executable again, the first

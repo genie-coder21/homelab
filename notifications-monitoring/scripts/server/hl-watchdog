@@ -73,7 +73,7 @@ def notify(topic: str, prio: int, title: str, msg: str, tags: str = "") -> None:
 
 
 def backup_running() -> bool:
-    # The backup stops containers on purpose; container checks stand down while it runs.
+    # Container checks account for planned maintenance.
     return sh("systemctl", "is-active", "--quiet", BACKUP_UNIT).returncode == 0
 
 

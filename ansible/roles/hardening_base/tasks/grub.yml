@@ -1,5 +1,4 @@
-# GRUB superuser password, so nobody at a console can edit a boot entry (init=/bin/bash), open the GRUB shell, or boot recovery mode without it.
-# Normal boot stays UNATTENDED: every normal Linux entry + the Advanced submenu get --unrestricted.
+# GRUB superuser password policy.
 # A boot password must never block an unattended boot, so the role
 # builds a candidate grub.cfg first and only runs update-grub if hl-grub-verify proves it is safe.
 # The password is read from the TPM-bound store at run time; the PBKDF2 hash is computed on the controller

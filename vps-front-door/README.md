@@ -180,20 +180,19 @@ the old micro shape but not on the larger Ampere shape, which needed a longer on
 
 ## Migration to an Ampere A1 instance
 
-The original front door was the free `VM.Standard.E2.1.Micro` shape. Measuring each leg
+The original front door was the small free shape. Measuring each leg
 showed the home uplink was several times faster than anything going through the tunnel:
-the micro shape is capped at about **50 Mbps for all remote users combined**. Average use
+the small shape has a low bandwidth cap shared by all remote users. Average use
 was far below that, but the provider's throttle-drop metric showed clients downloading in
 bursts that hit the cap on several days.
 
-The free **Ampere A1** shape (up to 2 OCPU / 12 GB per tenancy at the time) has far more
+The free **Ampere A1** shape has far more
 network bandwidth, but free A1 capacity is notoriously scarce. Two dead ends worth knowing:
 
 - **Another region doesn't help**: Always Free resources only exist in the tenancy's home
   region, and free accounts can't subscribe to more.
-- **Upgrading to pay-as-you-go** usually gets capacity faster. It was planned (with a
-  tenancy quota capping compute at the free amounts and a $1 budget alert as guard rails)
-  but turned out to be unnecessary.
+- **Upgrading to pay-as-you-go** usually gets capacity faster. It was planned (with cost
+  guard rails) but turned out to be unnecessary.
 
 ### The capacity hunter
 `scripts/hl-a1-hunt` (with `hl-a1-hunt.service` / `.timer`) retried instance creation
@@ -206,7 +205,7 @@ Properties that mattered:
   but is now an explicit abort.)
 - **Fails fast.** Launches use `--no-retry`, so an "Out of host capacity" answer returns in
   seconds instead of the CLI backing off for minutes and overlapping the next run. Each
-  availability domain is tried once per round. A `flock` guards against overlap anyway.
+  placement option is tried once per round. A `flock` guards against overlap anyway.
 - **Confirms before declaring victory.** A successful launch is only reported once a later
   round sees the instance `RUNNING` and an SSH login works. It then writes a result file,
   sends a notification and disables its own timer.
@@ -270,10 +269,6 @@ DNS records and the vps's cloud networking are described in Terraform, with stat
   `# comment` on a rule line in `after.rules`; comments go on their own line.
 - **Too-narrow container allow rules break container-to-host traffic** through the host's
   LAN address (one service calling another). Allow the Docker networks as a source.
-- **Whichever VM runs the dynamic-DNS updater owns the names.** With the IP left blank, the
-  updater registers its own address, so a manual change on the DNS provider's site is
-  reverted within minutes by the other VM's cron. Cutover = disable it on one, enable on
-  the other.
 - **CrowdSec's machine-registration command writes the credentials to stderr** (1.8.x), not
   stdout, so redirecting its standard output captures an empty file.
 - **CrowdSec's stock `profiles.yaml`** has commented-out `notifications:` lines between
@@ -308,7 +303,7 @@ DNS records and the vps's cloud networking are described in Terraform, with stat
 | `scripts/hl-a1-hunt` + `.service` / `.timer` | A1 capacity hunter |
 | `scripts/hl-oci` | OCI CLI wrapper with per-call ephemeral key |
 | `scripts/hl-mailhold-digest`, `hl-mailhold.conf.example`, `hl-mailhold-digest.service` / `.timer` | daily digest for the hold filter (the filter itself is described above and stays site-specific) |
-| `scripts/hl_gmail_import.py`, `scripts/hl-mailhold-auth` | Gmail API import module the hold filter calls for the mailbox copy (headers kept, no relay quota) and the one-time OAuth authorization helper |
+| `scripts/hl_gmail_import.py`, `scripts/hl-mailhold-auth` | upstream mail API import module the hold filter calls for the mailbox copy (headers kept, no relay quota) and the one-time OAuth authorization helper |
 | `templates/` | placeholder-only examples: WireGuard (both ends), proxy site, CrowdSec agent/bouncer/acquisition/whitelist, DOCKER-USER rules, NAT rule for the subnet router, SSH hardening |
 
 Everything in `templates/` uses `<PLACEHOLDER>` tokens and RFC 5737 / documentation-range

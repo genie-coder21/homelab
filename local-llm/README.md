@@ -1,6 +1,6 @@
 # Local LLM on the gaming-pc
 
-A local large language model served by [Ollama](https://ollama.com) on the Windows gaming-pc's GPU. The always-on server wakes the PC on demand and calls the model over the LAN. Its main consumer is a job-application automation tool that uses it to draft free-text answers (e.g. "Tell us about a project you're proud of"), which a human then reviews.
+A local large language model served by [Ollama](https://ollama.com) on the Windows gaming-pc's GPU. The always-on server wakes the PC on demand and calls the model over the LAN. Its main consumer is an internal form-automation tool that uses it to draft free-text answers (e.g. "Tell us about a project you're proud of"), which a human then reviews.
 
 ## Why local
 

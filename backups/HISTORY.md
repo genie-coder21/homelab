@@ -18,7 +18,7 @@ Three secrets were needed: the SMB credentials, the repository password and, lat
 
 ### Getting a consistent copy
 
-Backing up live SQLite databases risks capturing a half-written file. The job therefore stops every container stack before restic runs and starts them again afterwards. A graceful stop lets each app close its databases properly. On an incremental run the containers are down for about 40 seconds, which we judged acceptable at 4 a.m.
+Backing up live SQLite databases risks capturing a half-written file. The job therefore quiesces the application stacks before restic runs and starts them again afterwards. A graceful stop lets each app close its databases properly. On an incremental run the downtime is brief, which we judged acceptable overnight.
 
 Stopping things creates a new risk: if the job dies between stop and start, everything stays down, because `restart: unless-stopped` honours a deliberate stop. We added two safety nets the same day:
 - an `ExecStopPost=` hook that starts the stacks even if systemd kills the job
@@ -42,7 +42,7 @@ The first real run proved the waiting logic. It waited 165 minutes for activity 
 
 ## 2026-09-24: the target falls asleep
 
-The first 04:00 run failed. The gaming-pc sleeps after 15 idle minutes, so at 4 a.m. there was nothing to mount.
+The first scheduled run failed. The gaming-pc sleeps when idle, so there was nothing to mount.
 
 There were two ways to solve this: change the PC's power plan so it never sleeps, or have the backup wake it. We preferred waking it, since keeping a gaming PC awake all night just for a two-minute job is wasteful. The job gained a wake-on-LAN sender, a broadcast magic packet on the two conventional ports. It sends the packet, waits a minute and retries the mount. We gave it a retry window of 8 attempts, 10 minutes apart. We also confirmed that WoL needs the PC's wired NIC; the Wi-Fi adapter can't do it.
 
@@ -54,7 +54,7 @@ We also wrote up the alternative: weekly Windows restore points plus a disk imag
 
 ### WoL had never actually worked
 
-The second night failed too, after eight magic packets over 78 minutes. Looking back over the log, we found that **every unattended run so far had failed at the mount**. Every success had been started by hand while the PC was awake, so WoL had never once worked. As a stopgap the retry window was widened to 24 attempts, 15 minutes apart. That is six hours, so even a PC switched on mid-morning still gets that night's backup.
+The second night failed too, after eight magic packets over 78 minutes. Looking back over the log, we found that **every unattended run so far had failed at the mount**. Every success had been started by hand while the PC was awake, so WoL had never once worked. As a stopgap the retry window was widened, so a PC switched on later in the day still gets that night's backup.
 
 We then worked through the causes methodically. The AI assistant on the server and the one on the gaming-pc coordinated through a shared message board, each testing its own side:
 
@@ -91,7 +91,7 @@ restic snapshot IDs are content hashes and can't be renamed, so every snapshot n
 
 ## 2026-09-26: the persistent mount bites back
 
-The new always-on browse service caused the next failure. WoL worked and the PC woke. But the browse service had kept the network share mounted while the PC slept, and that mount had gone **stale**: still listed as mounted, yet every I/O failed with "host is down". A stale mount occupies the mountpoint, so every fresh mount attempt failed with EBUSY. The job looped from 04:07 to 05:44.
+The new always-on browse service caused the next failure. WoL worked and the PC woke. But the browse service had kept the network share mounted while the PC slept, and that mount had gone **stale**: still listed as mounted, yet every I/O failed with "host is down". A stale mount occupies the mountpoint, so every fresh mount attempt failed with EBUSY. The job looped for over an hour.
 
 The underlying bug was in the mount logic. It checked "is it mounted?" once, before its retry loop. Having decided to mount, it kept trying long after the share had become usable again, and it could not recover from a state it was already in.
 
@@ -101,13 +101,13 @@ We made four changes and verified them over three consecutive clean nights:
 - **Clear stale mounts** by force, and lazily if that fails, before retrying, instead of retrying into EBUSY forever.
 - **The backup owns the mount for its whole run.** It stops the browse service at the start and hands it back in a `finally` block, so even a crashed run leaves backups browsable.
 
-Retention also became self-healing. A browse mount can't delete its own lock file once its host disappears, so a stale lock is now an expected morning condition. When pruning reports a lock, the job runs `restic unlock`, which removes only locks whose owning process is dead and never a live one, then retries once.
+Retention also became self-healing. A browse mount can't delete its own lock file once its host disappears, so a stale lock is now an expected condition. When pruning reports a lock, the job runs `restic unlock`, which removes only locks whose owning process is dead and never a live one, then retries once.
 
 The lesson we recorded: a permanently mounted network share to a machine that sleeps is a liability, not a convenience. It is acceptable here only because the backup explicitly takes it away for every run.
 
 ## 2026-09-27: first fully unattended success
 
-The 04:00 run did everything it was designed to do with nobody awake. The first mount attempt failed because the PC was asleep. WoL went out, and the share mounted 60 seconds later. About 400k files and 784 MB were backed up in 16 seconds. A stale lock was found and cleared, retention was applied and the browse mount was handed back. The whole run took 2 minutes 34 seconds. Every fix from the previous two days fired in sequence.
+The scheduled run did everything it was designed to do with nobody awake. The first mount attempt failed because the PC was asleep. WoL went out, and the share mounted 60 seconds later. About 400k files and 784 MB were backed up in 16 seconds. A stale lock was found and cleared, retention was applied and the browse mount was handed back. The whole run took 2 minutes 34 seconds. Every fix from the previous two days fired in sequence.
 
 ## 2026-09-30: Docker started before the data disk
 
@@ -127,7 +127,7 @@ The same day, timing work on another project measured the gaming-pc waking from 
 
 The desktop popups only helped if someone was at the server's desktop, so the job gained phone and desktop push notifications through the self-hosted notification server. Success goes to a normal-priority topic. Failures, and any retention problem, go to a high-priority one.
 
-One detail mattered here. The notification server is itself a container, and the backup stops it, so a failure message sent from the middle of the run would be lost. The job collects its messages and sends them only after the run has finished, once it has waited for the notification server to report healthy. A separate watchdog alerts if the last good backup is more than 30 hours old.
+One detail mattered here. The notification server is itself quiesced during the backup, so a failure message sent from the middle of the run would be lost. The job collects its messages and sends them only after the run has finished, once it has waited for the notification server to report healthy. A separate watchdog alerts if the last good backup is more than 30 hours old.
 
 ## 2026-10-07: an RDP trap, and the off-site copy
 
@@ -145,10 +145,10 @@ Two problems surfaced on the first day. The TPM credstore strips a key's trailin
 
 ## 2026-10-11 to 2026-10-12: state lost across the nightly stop
 
-The nightly quiesce turned out to have a side effect on one app. A job-application automation tool kept its per-worker "paused" flags only in an in-memory store. The backup stopped and restarted that store, the flags vanished, and the workers resumed work they had been told to hold. The fix in the app was to persist the pause state and restore it on start.
+The nightly quiesce turned out to have a side effect on one app. An internal form-automation tool kept its per-worker "paused" flags only in an in-memory store. The backup stopped and restarted that store, the flags vanished, and the workers resumed work they had been told to hold. The fix in the app was to persist the pause state and restore it on start.
 
 The next night exposed a second-order problem. The saved copy was stale, because some pauses had been changed directly in the in-memory store and so bypassed the code path that updates the saved copy. The general lesson for anything the backup quiesces every night: state that must survive a restart has to be persisted, and it must only be changed through the path that keeps the persisted copy in step.
 
 ## Where it stands
 
-The server backs itself up every night, unattended, to an encrypted repository on a machine that is asleep when the run starts. The run waits until services are idle, stops containers only briefly, prunes reliably, cleans up after itself, and reports every outcome to a phone. The docs and the code project have an off-site copy that refuses to push anything secret or personal. Docker can no longer start against a missing data disk. The gaming-pc's own backup is drafted and tested but its final form, file-level restic versus images, is still being decided.
+The server backs itself up every night, unattended, to an encrypted repository on a machine that is asleep when the run starts. The run waits until services are idle, quiesces applications only briefly, prunes reliably, cleans up after itself, and reports every outcome to a phone. The docs and the code project have an off-site copy that refuses to push anything secret or personal. Docker can no longer start against a missing data disk. The gaming-pc's own backup is drafted and tested but its final form, file-level restic versus images, is still being decided.
