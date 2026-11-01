@@ -363,3 +363,8 @@ trade-off was weighed, and what changed.
 - **Correct mistakes in writing.** Wrong theories (the router, ARP as a liveness test, the
   game fix) were retracted explicitly on the board, so nobody would rediscover them as
   facts later.
+
+## 2026-11-01: a repeatable base image
+
+The base image for these VMs can now be built from a recipe on the gaming-pc, using Packer with an unattended install and the existing base install script unchanged. Build credentials are random, generated at run time and not kept. A build runs a health check first and refuses to start if it fails. The first test builds failed for useful reasons: an answer file command over the length limit stops the rest silently, remote management needs the guest's network configured before it will accept the build's connection, and generalizing has to be the final shutdown step because it drops the build's connection. Existing VMs were not changed.
+
