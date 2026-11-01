@@ -1,5 +1,5 @@
 [Unit]
-Description=Off-site GitHub copy every 15 minutes
+Description=Off-site GitHub copy on a schedule
 
 [Timer]
 OnBootSec=5min
