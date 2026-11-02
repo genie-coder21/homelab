@@ -58,6 +58,8 @@ Tokens live in the server's TPM-bound secret store (see `../secrets-and-hardenin
 
 ## The watchdog
 
+A separate security watch pushes an alert within about a minute for an unfamiliar SSH login, an account change or a refused sudo, on the server or the vps.
+
 `hl-watchdog` covers what the apps can't report about themselves. It alerts **once** when a problem starts, reminds every **6 hours** while it lasts, and sends **"Recovered"** when it clears. Flappy checks need 2 or 3 consecutive failures before they fire. A check that throws is recorded and skipped, so one broken check never takes down the others. State is written atomically, and there is a dry-run mode that prints instead of sending.
 
 | Check | Fires when |

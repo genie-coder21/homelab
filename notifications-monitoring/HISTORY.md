@@ -163,3 +163,7 @@ Logs were searchable, so the next step was numbers and timing. Metrics and trace
 **Tracing needed more than a switch.** Default instrumentation records more than route names and timing. An allowlist in the exporter keeps only those, and a test with marker values confirmed nothing else reached the wire.
 
 **The outside check found its own false alarm.** Some calls failed instantly for reasons unrelated to the sites. A narrow retry stops those from becoming false alerts, while a real outage still fails every try.
+
+## 2026-11-01: a security watch
+
+A small script now pushes an alert within about a minute of an unfamiliar SSH login, an account change or a refused sudo. Alerting was tuned against a day of real logs, and the parsing was tested against crafted log lines, log rotation and a notification-server outage.

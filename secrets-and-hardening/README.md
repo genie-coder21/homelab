@@ -107,6 +107,7 @@ Secrets the gaming-pc needs (e.g. a notification token) are fetched once over SS
 ## Auditing and integrity
 
 - **The Linux audit daemon** watches the container runtime: its binaries, socket, config directory and daemon config file, and its systemd units. Any change there leaves a keyed record. Logs rotate at a fixed total size. Watches are kept to config and binaries, so the log volume stays useful.
+- **Audit coverage on both hosts** also includes accounts, sudo rules, SSH settings, cron, module loading and interactive command activity. The rate was measured before the rules went in.
 - **File integrity (AIDE)** covers the system directories with a single strong hash, nightly at idle priority. Trap: the distribution's default includes the whole filesystem, which on a large data disk hashes everything and needs gigabytes of memory; scope it.
 - **A rootkit checker** runs daily and **a package-integrity check** weekly. Both run offline and re-baseline automatically after package upgrades.
 - **Kernel and login defaults:** no core dumps for setuid programs (the crash reporter is disabled, because it would quietly turn that back on at boot); stricter kernel-pointer and BPF JIT settings; martian-packet logging; protected FIFOs; unused network protocol modules blocked. One trap: a distribution sysctl file sorts after a `90-` name and overrides it, so that setting needed a later-sorting file name to win.
