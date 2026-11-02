@@ -196,3 +196,7 @@ pinned to a commit hash, and the binaries it downloads are pinned to a version a
 **A Kubernetes lab.** A small k3s cluster runs in containers, managed with Helm and Kustomize, to learn on without changing real services. It is not reachable from the internet and holds only demo workloads.
 
 **A lesson from the lab.** A rollback test unloaded a kernel module that other networking relied on. Kernel networking modules can depend on each other in ways the module tools don't show, so unloading one can remove another. The hardening standard now forbids unloading the modules container networking depends on, and health checks are read unfiltered when testing a change.
+
+## 2026-11-01: tuning from the benchmark scans
+
+A round of items from the scans went in across several Ansible roles, split so no two changes touched the same role at once. New audit rules were measured per key before being kept. One trap: removing a metapackage would have left many packages as autoremove candidates, including some still in use, so the role now marks them as manually installed first. A health check, a role drift check and a rescan closed out the work.
