@@ -154,7 +154,10 @@ runs at home, and the VPS is the only thing the internet talks to.
   pass through the SMTP restrictions again, so there is no loop. It fails open: any error
   passes the mail, and a failed re-injection asks Postfix to retry. Held mail is kept on disk
   with a JSON decision log, and one digest a day lists what was held. A dry-run mode logs and
-  keeps copies but still delivers, which is how it runs for its first days.
+  keeps copies but still delivers; the filter ran that way for its first nine days (every
+  would-hold a code or an acknowledgement) before it was switched to hold. Test the
+  switch with a copy of a real forward, not a hand-made message: the robot-sender rule keys on
+  the alias service's rewritten sender shape, so a made-up sender passes as human.
 
 ### Key-only SSH, management over the tunnel
 Both machines use public-key-only SSH with root login disabled and a short auth window,

@@ -530,3 +530,15 @@ Two traps:
 ## 2026-11-01: importing the edge into Terraform
 
 Existing DNS and cloud resources were imported, not recreated, and the goal was a plan with zero changes. Drift alerts were tested on a scratch copy so no live record was touched.
+
+## 2026-11-05: the hold filter goes live
+
+After nine days in dry-run mode the decision log showed a steady stream of would-holds, every
+one a one-time code or a "we received your message" acknowledgement, and nothing a person
+would have wanted to see. The mode was switched to hold; the filter reads its config per message, so no reload.
+
+Proving it was more interesting than flipping it. A hand-made test message with an invented
+sender passed as "human sender", because the robot-sender rule keys on the alias service's
+rewritten sender shape, so the test proved nothing and one stray message reached the inbox.
+Re-injecting a kept copy of a real forward into the local SMTP port gave the real answer: held,
+logged, nothing delivered. Baselines re-taken afterwards.
