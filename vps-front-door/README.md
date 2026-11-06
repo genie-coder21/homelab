@@ -146,18 +146,23 @@ runs at home, and the VPS is the only thing the internet talks to.
   from senders who write a display name kept its original `To` beside the new one, and the
   relay rejected it for carrying two `To` headers.
 - **Hold filter for notification noise.** The mailbox copy of each forward passes through a
-  small Postfix pipe filter, selected by a `FILTER` action on the mailbox recipient. It holds
-  only mail that is all of: an alias-service forward; from a no-reply or notification
-  sender; free of anything a person would act on (a question, a request to reply,
-  scheduling); and a one-time code or a "we received your message"
-  acknowledgement. Everything else is re-injected with the local sendmail, which does not
+  small Postfix pipe filter, selected by a `FILTER` action on the mailbox recipient. Mail from
+  a person always passes. Mail from a robot sender (no-reply and notification local parts,
+  known bulk-mailer domains and bounce addresses) is held unless it carries a genuine next
+  step: a scheduling link, a confirmed appointment, an invitation to a specific appointment or
+  task, or a reply written by a person. Everything else from a robot is held and tagged by
+  kind: one-time codes, acknowledgements in all their shapes, automated declines, and
+  unclassified automated mail. Generic boilerplate inside an acknowledgement ("reply to this
+  email") does not rescue it, and weaker signals pass a robot mail only when the subject is
+  not an acknowledgement. Passed mail is re-injected with the local sendmail, which does not
   pass through the SMTP restrictions again, so there is no loop. It fails open: any error
   passes the mail, and a failed re-injection asks Postfix to retry. Held mail is kept on disk
-  with a JSON decision log, and one digest a day lists what was held. A dry-run mode logs and
-  keeps copies but still delivers; the filter ran that way for its first nine days (every
-  would-hold a code or an acknowledgement) before it was switched to hold. Test the
-  switch with a copy of a real forward, not a hand-made message: the robot-sender rule keys on
-  the alias service's rewritten sender shape, so a made-up sender passes as human.
+  with a JSON decision log, and one digest a day lists what was held by kind. A dry-run mode
+  logs and keeps copies but still delivers; the filter ran that way for its first nine days
+  before it was switched to hold, and for its first week in hold mode it held only codes and
+  acknowledgements. Test the rules with a kept copy of a real forward, not a hand-made
+  message: the robot-sender rule keys on the alias service's rewritten sender shape, so a
+  made-up sender passes as human.
 
 ### Key-only SSH, management over the tunnel
 Both machines use public-key-only SSH with root login disabled and a short auth window,

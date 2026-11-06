@@ -542,3 +542,24 @@ sender passed as "human sender", because the robot-sender rule keys on the alias
 rewritten sender shape, so the test proved nothing and one stray message reached the inbox.
 Re-injecting a kept copy of a real forward into the local SMTP port gave the real answer: held,
 logged, nothing delivered. Baselines re-taken afterwards.
+
+## 2026-11-06: the hold filter inverts its default
+
+A day of heavy notification traffic showed the limits of "hold only what matches a rule".
+The decision log said most of what passed was still automated noise, for three reasons. One
+sender's acknowledgement subject matched no rule. Acknowledgements whose body carried generic
+boilerplate ("reply to this email") hit the "a person might act on this" pass rule. And a
+handful of robot senders used local parts the robot rule did not know, or bulk-mailer bounce
+addresses.
+
+The owner's wish was simpler than the rules: hide everything automated and let through
+people and real next steps. So the default flipped. A robot sender is now held unless the mail
+carries a strong next-step signal: a scheduling link, a confirmed appointment, an invitation to
+a specific appointment or task, a person following up. Weaker signals still pass a robot mail
+only when the subject is not an acknowledgement. Automated declines are held under their own
+kind so the daily digest can count them.
+
+Testing used synthetic messages covering each branch and a replay of the kept copies from
+the previous days. The replay caught one over-eager pattern: a marketing phrase inside an
+acknowledgement matched the invitation rule, so the rule now requires an invitation to a
+specific appointment or task. Nothing else flipped. Baselines re-taken afterwards.
