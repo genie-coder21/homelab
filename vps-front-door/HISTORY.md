@@ -563,3 +563,20 @@ Testing used synthetic messages covering each branch and a replay of the kept co
 the previous days. The replay caught one over-eager pattern: a marketing phrase inside an
 acknowledgement matched the invitation rule, so the rule now requires an invitation to a
 specific appointment or task. Nothing else flipped. Baselines re-taken afterwards.
+
+## 2026-11-10: a static site with a deny-by-default header set
+
+The reverse proxy gained a small static site, served straight from the VPS disk, so nothing new
+is forwarded down the tunnel and nothing changes at home. The page was written to suit a strict
+content policy from the start: it carries no inline script or inline style, and its typeface and
+pictures are served from its own folder, so the browser never contacts a third party.
+
+That let the proxy send a deny-by-default content policy that allows only the site's own
+resources, alongside the usual set of browser hardening headers, and refuse every method except
+reads. Each header was confirmed present on every response the site serves.
+
+Testing: the page was loaded in a headless browser over the public address to confirm the
+typeface, scripts and every picture still load under the policy; write methods, encoded path
+tricks, dotfiles and directory listings were probed and all refused; and every other site behind
+the proxy was checked before and after and answered identically. The configuration was
+syntax-tested and reloaded, not restarted, and the file-integrity baseline was re-taken.

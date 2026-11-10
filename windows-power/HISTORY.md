@@ -7,3 +7,5 @@
 **2026-10-03: the PC that wouldn't sleep.** The PC stayed awake all night. Reading the logs showed two separate causes. Until shortly after midnight it was on Ultimate Performance, which never sleeps. After a shortcut switched it to Power Saver, it still never even *attempted* to sleep. The power-request list showed a system-required request from a USB headset's audio driver: chat, wallpaper and launcher apps kept an audio stream open. The owner chose a per-driver override so Windows ignores that device's audio stream for sleep, accepting that the PC can now sleep mid-music without input. A second, legacy kernel request was noted as the next candidate if the problem returned.
 
 **2026-10-13: public version.** User-specific install paths and documentation pointers were removed. The scripts are otherwise unchanged.
+
+**2026-11-03: gaming-pc notes.** The phone-sync apps were reinstalled through the package manager. Separately, phone sync turned out to be reliable only on the CPU-attached USB ports, not the chipset ports.
