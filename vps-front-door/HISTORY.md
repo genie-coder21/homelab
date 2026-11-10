@@ -580,3 +580,19 @@ typeface, scripts and every picture still load under the policy; write methods, 
 tricks, dotfiles and directory listings were probed and all refused; and every other site behind
 the proxy was checked before and after and answered identically. The configuration was
 syntax-tested and reloaded, not restarted, and the file-integrity baseline was re-taken.
+
+A later follow-up gave the site a way for visitors to send a message. A form needs something to
+receive it, and the rule for the VPS is that it holds no credentials for the home notification
+service and sends no mail on a web visitor's behalf. So the form follows the same pull pattern as
+the VPS's system mail and file-integrity verdicts: a very small receiver, bound to the loopback
+interface behind the reverse proxy, validates each request and writes it to a spool that only
+its own unprivileged account can read, and the home server collects the spool on a short timer
+over its existing management connection and raises the notification from home.
+
+Abuse is limited in layers at the proxy and in the receiver: request size and rate are bounded,
+automated submissions are filtered, and the receiver bounds how much it will accept. The receiver
+runs under a systemd sandbox written through the hardening role, with no capabilities, no
+privilege gain and network access restricted to the loopback interface. Testing covered the
+abuse limits, the receiver inside its sandbox, and one real submission followed all the way to
+the notification. The mail path was considered and rejected for this: it filters automated
+senders on purpose, so a form message could be held without anyone noticing.
