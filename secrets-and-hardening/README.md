@@ -56,7 +56,7 @@ Each stack can have a `.env.template` with `@secret:NAME` placeholders. The temp
 
 The compose file references the variable with a `${VAR:?message}` guard (see `scripts/examples/`). If anyone starts the stack with plain `docker compose`, it fails loudly instead of starting with an empty password.
 
-After any build, `hl-compose` also trims Docker's build cache back to a fixed size. A daily timer is the backstop.
+After any build, `hl-compose` also trims Docker's build cache back to a fixed size. A daily timer is the backstop; it also prunes dangling images. Note that a recent Docker release renamed the size flag of `docker builder prune` (`--keep-storage` became `--max-used-space`): the old flag is accepted but ignored, so a trim that keeps reporting zero bytes reclaimed while the cache grows is the sign to check the flag.
 
 ## Giving a secret to a systemd service
 

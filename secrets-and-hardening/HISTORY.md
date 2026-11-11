@@ -200,3 +200,8 @@ pinned to a commit hash, and the binaries it downloads are pinned to a version a
 ## 2026-11-01: tuning from the benchmark scans
 
 A round of items from the scans went in across several Ansible roles, split so no two changes touched the same role at once. New audit rules were measured per key before being kept. One trap: removing a metapackage would have left many packages as autoremove candidates, including some still in use, so the role now marks them as manually installed first. A health check, a role drift check and a rescan closed out the work.
+
+## 2026-11-11: the build cache, again
+
+The system disk was filling up. Most of it turned out to be application data unrelated to the lab, plus 48 GB of Docker build cache that the daily trim should have removed. The trim had been running every night and reporting nothing to do: a recent Docker release had renamed the flag that sets the cache size, and the old name was accepted silently and ignored. Both the after-build trim in `hl-compose` and the daily timer now use the new flag, and the timer also prunes dangling images. The AIDE baseline was refreshed after the unit edit. Lesson: a maintenance job that always reports zero bytes reclaimed deserves a look, even when it exits cleanly.
+
