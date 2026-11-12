@@ -36,6 +36,7 @@ A small self-hosted infrastructure built and run at home: one always-on Ubuntu s
 | [local-llm](local-llm/) | An Ollama model on the gaming PC's GPU, woken on demand by the server |
 | [windows-power](windows-power/) | Power-plan switching scripts and shortcuts for the gaming PC |
 | [ansible](ansible/) | The server as an Ansible control node for itself, the VPS and the gaming PC (the Windows side over OpenSSH), and the host hardening of both Linux machines as roles |
+| [kubernetes](kubernetes/) | A two-node k3s cluster built live next to the Docker host: native server, WSL2 agent on the gaming-pc, private registry, credstore-to-Secrets bridge, and the VPN DNS trap |
 | [roadmap](roadmap/) | Design notes for planned work: a ZFS rebuild, an Ansible rebuild, a two-node k3s cluster |
 
 ## Conventions

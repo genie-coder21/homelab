@@ -1,0 +1,15 @@
+[Unit]
+Description=k3s: clear the VPN client's forwarded-traffic mark on pod packets
+Before=k3s.service
+Wants=network-pre.target
+After=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/k3s/vpn-unmark.nft
+ExecStop=/usr/sbin/nft delete table ip k3s_vpn_fix
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=k3s.service

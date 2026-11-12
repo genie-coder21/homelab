@@ -372,3 +372,7 @@ The base image for these VMs can now be built from a recipe on the gaming-pc, us
 ## 2026-11-01: launcher crypto moved in-process
 
 The launcher and two helpers now do their crypto and API calls in-process using the distribution's cryptography package. Old and new token builders produced identical bytes, and Guacamole accepted a token from the new code.
+
+## 2026-11-10: streaming host pairing password rotated; stale pairings cleared
+
+Rotated the pairing password for the kids' game-streaming host and applied it to both gaming VMs. Existing paired clients are unaffected, since that password is only used to pair. When one tablet still could not get in, the host's log showed a client-certificate mismatch against stale device records; clearing the server-side pairings let the tablet re-pair cleanly.

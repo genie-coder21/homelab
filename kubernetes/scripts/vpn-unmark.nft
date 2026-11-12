@@ -1,0 +1,13 @@
+#!/usr/sbin/nft -f
+# Clear a desktop VPN client's "forwarded traffic" mark on packets from the pod network, so its
+# split-tunnel DNS redirect (marked DNS -> home router) does not catch pod -> CoreDNS queries.
+# Prerouting hook priority -120 runs after mangle (-150, where the mark is set) and before nat (-100,
+# where the redirect lives), whatever the iptables rule order. CONFIG: the mark value your VPN client uses for forwarded traffic, and the pod CIDR.
+table ip k3s_vpn_fix
+delete table ip k3s_vpn_fix
+table ip k3s_vpn_fix {
+  chain unmark_pods {
+    type filter hook prerouting priority -120; policy accept;
+    ip saddr <POD_CIDR> meta mark <VPN_FWD_MARK> meta mark set 0x0 counter comment "k3s pods: undo VPN fwd mark"
+  }
+}

@@ -68,6 +68,8 @@ These are design notes for agreed future work that hasn't been built yet. Each o
 
 ## 3. Two-node k3s cluster across the server and the gaming-pc
 
+**Started 2026-11-11: see [kubernetes](../kubernetes/).** The notes below are the original plan.
+
 **Status:** agreed direction, not started. Planned for after the workload it hosts is stable.
 
 **Problem.** A containerized worker application currently runs under Docker Compose on the server only. The gaming-pc has spare CPU, RAM and the GPU, and the goal is to run workers on **both** machines against **one** shared database, queue and web UI, and to be able to bring the whole thing up somewhere else with little hand-work.

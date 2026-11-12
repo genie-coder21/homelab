@@ -1,0 +1,20 @@
+# /etc/rancher/k3s/config.yaml on the server. CONFIG: node name, LAN address, interface.
+node-name: server
+node-ip: 192.0.2.10
+node-label:
+  - role/node=server
+tls-san:
+  - 192.0.2.10
+flannel-iface: eth0
+flannel-backend: vxlan            # both nodes on the LAN; wireguard-native would collide with the existing tunnel
+cluster-cidr: <POD_CIDR>        # check against every VPN, tunnel and Docker range on the host first
+service-cidr: <SERVICE_CIDR>
+disable:
+  - traefik                       # nothing is ingressed
+  - servicelb                     # sidecars use hostPorts; no LoadBalancer services
+secrets-encryption: true
+write-kubeconfig-mode: "0600"
+kubelet-arg:
+  - pod-max-pids=<POD_MAX_PIDS>   # carry over the pids limits the Compose services had
+kube-proxy-arg:
+  - conntrack-max-per-core=0      # leave the host's conntrack table alone (Docker, UFW and the VPN share it)
