@@ -25,3 +25,12 @@ the owner decides what it should run. AIDE was re-baselined after the system cha
 
 Open: the gaming-pc node itself, its NFS exports, seeding browser profiles into the new per-worker volumes, and later moving the database, queue
 and UI into the cluster, still on the server's disk.
+
+## 2026-11-11, later: the gaming-pc side begins
+
+Installed WSL 2 on the gaming-pc so it can join the server's Kubernetes cluster as a second worker node;
+it finishes after the next reboot. The WSL configuration caps the distro's memory and CPU, uses mirrored
+networking so the distro shares the host's LAN address, and a logon task keeps the distro alive so the
+agent does not stop when no terminal is open. Host firewall rules for the cluster ports accept only the
+server. With the host's memory shared by two game VMs and a local LLM, the worker memory limit on that
+node is set lower than on the server, and workers are added in steps with free memory checked each time.
