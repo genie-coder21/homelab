@@ -69,3 +69,22 @@ treatment at the Docker layer. The lock-down script was reviewed and run by the 
 the owner's explicit yes, and it found two bugs in the script on the way: a presence check that read a
 root-only file without privileges (so a re-run would have duplicated the block) and a rule match that
 ignored the firewall tool's column padding. Both fixed; the script is safely re-runnable.
+
+## 2026-11-12: everything moves in; Compose retired
+
+With the owner's "do it all", the rest of the app followed the workers into the cluster in one evening, run by
+a build agent against a written brief while the app stayed live. The remaining Compose workers became pods on
+the server with their assignments, holds and browser profiles carried over (profiles copied only while both the
+old and the new worker were stopped, never shared live). The database became a StatefulSet on the same data
+directory, with row counts and the schema revision checked before and after. The queue's credential is rendered
+from the TPM credstore like every other secret. The web UI and the remaining services became pods, the systemd timers
+became CronJobs, and a nightly database dump CronJob was added because the nightly backup no longer stops the
+database. The old Compose containers were removed rather than stopped: the backup job's safety net restarts
+every exited container it finds, which would have resurrected them. The Compose files stay as the documented
+fallback, with a per-step rollback written down.
+
+Lessons from the night: a VPN client that marks every forwarded packet can collide with the CNI port-mapping
+plugin's masquerade bit, so pods behind hostPorts see every client as the node. A single-replica Deployment that owns a hostPort needs the
+Recreate strategy or its rollout deadlocks on its own port. A manually started job is not covered by a
+CronJob's concurrency policy. And the dashboard's "add a worker" control now asks which node the worker should
+spawn on, since there is more than one.
