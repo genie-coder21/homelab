@@ -34,3 +34,29 @@ networking so the distro shares the host's LAN address, and a logon task keeps t
 agent does not stop when no terminal is open. Host firewall rules for the cluster ports accept only the
 server. With the host's memory shared by two game VMs and a local LLM, the worker memory limit on that
 node is set lower than on the server, and workers are added in steps with free memory checked each time.
+
+## 2026-11-11, night: the second node joins, and WSL's networking teaches a lesson
+
+The gaming-pc's WSL 2 distro joined the cluster as an agent within minutes. Then the pod overlay turned out to
+be one-way: the distro's encapsulated packets reached the server and were answered, but the answers never
+arrived. WSL's mirrored networking hands inbound traffic only to real Linux listening sockets; the overlay's
+kernel socket, the kernel NFS client and Kubernetes' iptables-only hostPorts are all invisible to it. The
+distro also renames its network interfaces across restarts, so nothing may reference an interface name.
+
+The fix that covers all of it at once: a dedicated WireGuard tunnel between the server and the distro, with
+the distro end running the userspace implementation and initiating with a keepalive. Windows then sees a
+single outbound flow from an ordinary socket, and the overlay, the kubelet port and NFS ride inside it. The
+agent uses the tunnel interface and address, which never change. Changing a node's address after it has
+registered needs a delete and re-register, or the kubelet certificate and the node record disagree and log
+and exec calls fail with a certificate error.
+
+NFS had a second trap: nested exports on one filesystem inherit the parent's read-only flag, so a read-write
+child under a read-only parent came out read-only. Each export is now its own bind mountpoint, read-only
+where it should be, enforced by the kernel rather than by the export flag.
+
+The remote-display links for that node's workers are served by a small gateway pod on the server, which
+publishes one port per worker and forwards over the overlay. The first worker pod on the gaming-pc came up
+paused, heartbeating into the shared queue, with the server's folders mounted over the tunnel. A shutdown
+and restart of the distro brought the tunnel and the agent back on their own in under half a minute.
+Reaching the gaming-pc's local LLM from inside its own node did not work under mirrored networking and was
+dropped by the owner; those workers use the cloud models like everything else.
