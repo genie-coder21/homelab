@@ -60,3 +60,12 @@ paused, heartbeating into the shared queue, with the server's folders mounted ov
 and restart of the distro brought the tunnel and the agent back on their own in under half a minute.
 Reaching the gaming-pc's local LLM from inside its own node did not work under mirrored networking and was
 dropped by the owner; those workers use the cloud models like everything else.
+
+## 2026-11-12: ports locked to the second node
+
+Restricted the Kubernetes control, overlay and storage ports on the server so only the second node can
+reach them; everything else on the LAN is unchanged. The registry and the database proxy got the same
+treatment at the Docker layer. The lock-down script was reviewed and run by the gaming-pc's assistant with
+the owner's explicit yes, and it found two bugs in the script on the way: a presence check that read a
+root-only file without privileges (so a re-run would have duplicated the block) and a rule match that
+ignored the firewall tool's column padding. Both fixed; the script is safely re-runnable.
