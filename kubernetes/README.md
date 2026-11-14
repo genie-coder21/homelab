@@ -46,6 +46,16 @@ ordered before it, and gets the usual sandbox drop-in from the Ansible role. Pro
 cluster names, public names, the notification server on the host and the LLM on the gaming-pc all
 reachable. Never unload bridge modules to "clean up" (that once took every Docker bridge down).
 
+### Keeping the real client address for containers
+
+A packet mark set by other software on the host can contain the bit the CNI port-mapping plugin uses to
+say "masquerade this packet". The plugin's rule matches on that bit alone, so it would masquerade more
+than hostPort traffic. A second chain in the same table, in the **postrouting hook at priority 90** (just
+ahead of nat), clears only that bit, and only for packets not headed to the pod CIDR. Routing has already
+been decided at that point, so nothing that routes on the mark is affected, and Docker containers on the
+same host keep seeing the original client address. Rule changes are applied atomically, without
+restarting any unit. Checked with a health snapshot before and after (identical).
+
 ## Deploying
 
 A deploy script runs the test suite as a gate, builds and pushes the images tagged with the git commit,

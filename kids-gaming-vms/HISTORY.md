@@ -376,3 +376,7 @@ The launcher and two helpers now do their crypto and API calls in-process using 
 ## 2026-11-10: streaming host pairing password rotated; stale pairings cleared
 
 Rotated the pairing password for the kids' game-streaming host and applied it to both gaming VMs. Existing paired clients are unaffected, since that password is only used to pair. When one tablet still could not get in, the host's log showed a client-certificate mismatch against stale device records; clearing the server-side pairings let the tablet re-pair cleanly.
+
+## 2026-11-12: a VM boots with its desktop on a phantom display
+
+A GPU-partitioned kids' VM booted with its desktop on a phantom display, so its console froze on the boot logo and game streaming found no screen. Restarting the VM's synthetic video adapter inside the guest reattached the display without a reboot and without touching the host GPU.

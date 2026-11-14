@@ -83,8 +83,15 @@ database. The old Compose containers were removed rather than stopped: the backu
 every exited container it finds, which would have resurrected them. The Compose files stay as the documented
 fallback, with a per-step rollback written down.
 
-Lessons from the night: a VPN client that marks every forwarded packet can collide with the CNI port-mapping
-plugin's masquerade bit, so pods behind hostPorts see every client as the node. A single-replica Deployment that owns a hostPort needs the
+Lessons from the night: a pre-existing firewall mark can overlap the CNI port-mapping plugin's masquerade
+bit, which needs its own small nftables rule. A single-replica Deployment that owns a hostPort needs the
 Recreate strategy or its rollout deadlocks on its own port. A manually started job is not covered by a
 CronJob's concurrency policy. And the dashboard's "add a worker" control now asks which node the worker should
 spawn on, since there is more than one.
+
+## 2026-11-13: source-address preservation for containers next to k3s
+
+Added a second chain to the existing nftables table so the CNI port-mapping plugin's masquerade applies
+only to pod traffic, and Docker containers on the same host keep seeing the original client address. It
+was loaded in one atomic transaction without touching the k3s unit. A health snapshot before and after
+was identical, and the file-integrity baseline was refreshed.

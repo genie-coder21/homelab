@@ -10,4 +10,13 @@ table ip k3s_vpn_fix {
     type filter hook prerouting priority -120; policy accept;
     ip saddr <POD_CIDR> meta mark <VPN_FWD_MARK> meta mark set 0x0 counter comment "k3s pods: undo VPN fwd mark"
   }
+  # A pre-existing firewall mark can contain the bit the CNI port-mapping plugin uses for "masquerade this
+  # packet", which would make its rule masquerade more than hostPort traffic. This chain runs in postrouting
+  # just before nat (100), after routing is decided, and clears only that bit for packets not going to a pod,
+  # so Docker containers on the same host keep seeing the original client address.
+  # CONFIG: the CNI masquerade bit and its inverse mask.
+  chain keep_container_src {
+    type filter hook postrouting priority 90; policy accept;
+    ip daddr != <POD_CIDR> meta mark & <CNI_MASQ_BIT> == <CNI_MASQ_BIT> meta mark set meta mark & <CNI_MASQ_BIT_INVERSE> counter comment "non-pod: clear stray CNI masq bit"
+  }
 }
