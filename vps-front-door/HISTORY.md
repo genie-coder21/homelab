@@ -596,3 +596,11 @@ privilege gain and network access restricted to the loopback interface. Testing 
 abuse limits, the receiver inside its sandbox, and one real submission followed all the way to
 the notification. The mail path was considered and rejected for this: it filters automated
 senders on purpose, so a form message could be held without anyone noticing.
+
+## 2026-11-17: patch, reboot, and escalating bans
+
+**Patching.** A maintenance window applied updates and a reboot, with health snapshots before and after, all identical. The box was watched through the reboot over the tunnel and from the public side.
+
+**Trap: the intrusion-detection package's upgrade re-runs its own setup** and can change its configuration. After upgrading it, verify the edge still blocks end to end and that local customizations survived.
+
+**Escalating bans.** Ban length now grows with each repeat offense instead of being one fixed duration, and decision history was extended so earlier offenses are still counted. Inserting the rule had a trap of its own: the stock profile file contains a commented-out block with the same key name, and a naive search-and-insert un-commented it. The file was restored from its backup and the rule was inserted at an exact anchor. After a restart, existing bans survived and the edge bouncer reconnected within seconds.

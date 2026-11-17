@@ -165,6 +165,12 @@ Logs leave each machine so an intruder can't quietly erase them:
 
 AIDE runs on the VPS on a schedule and leaves a short verdict. The alert is a **pull**: the server reads the verdict and sends the notification. **The internet-facing VPS holds no notification token**, and a scan that silently stopped running is caught as well, because a stale verdict is itself an alert.
 
+The check after a scan reconciles changed files against the package manager's records, so routine upgrades don't raise false alarms; anything it can't explain is reported. Three design points matter:
+
+- **Do the package lookups in bulk.** A new kernel touches tens of thousands of files. Looking up each file's owning package and re-verifying that package per file was far too slow. Building one file-to-package map from the package database and verifying each package once takes a couple of minutes.
+- **Merged `/usr` has two spellings.** The package database records many files under `/lib` or `/bin`, while the scanner reports the `/usr/lib` and `/usr/bin` paths. Compare both, or every kernel module looks unexplained.
+- **A scan that gets killed still leaves a verdict.** If the time limit stops it, it records an error instead of leaving yesterday's result in place.
+
 ## Measuring against published benchmarks
 
 A SCAP scanner checks the hosts against published security benchmarks on a schedule, read-only. Its results guide hardening work and stay private. A benchmark score is treated as a planning tool, not a compliance claim. The benchmark content was reviewed for writes before its first run.

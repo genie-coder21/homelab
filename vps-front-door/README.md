@@ -76,6 +76,7 @@ only on the VPS loses the home services' own logs (login failures). So:
   image/artwork endpoints that the apps' own clients generate, which otherwise look like
   scanning and ban real users.
 - New bans are pushed to a self-hosted notification service, batched.
+- **Ban length escalates for repeat offenders,** based on each address's earlier decisions, and decision history is kept long enough for the count to matter.
 
 If the tunnel or the home box is down, the bouncer keeps the bans it already has and
 resumes pulling when the tunnel returns.
