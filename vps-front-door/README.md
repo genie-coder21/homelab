@@ -164,6 +164,16 @@ runs at home, and the VPS is the only thing the internet talks to.
   acknowledgements. Test the rules with a kept copy of a real forward, not a hand-made
   message: the robot-sender rule keys on the alias service's rewritten sender shape, so a
   made-up sender passes as human.
+- **A webmail page at home for the archive copy.** The alias service also delivers every mail
+  to an internal archive mailbox on the home server. A separate single-user webmail reads that
+  archive. It is reachable only from the home network and the VPN, never through the VPS. It
+  reads the archive through a read-only mount and a dedicated database role limited to SELECT
+  on the fields it displays, inside read-only transactions. Its own small database holds a
+  full-text index, read/star/archive flags and the sent copies. Message HTML is shown in a
+  sandboxed frame with its own content policy (no scripts, no forms, remote images blocked
+  until asked), and attachments always download. Replies leave through the same VPS relay as
+  the alias service's mail, signed in the app with the domain's DKIM key so they align with the
+  domain's policy, under a daily cap.
 
 ### Key-only SSH, management over the tunnel
 Both machines use public-key-only SSH with root login disabled and a short auth window,

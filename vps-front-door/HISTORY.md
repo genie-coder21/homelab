@@ -604,3 +604,31 @@ senders on purpose, so a form message could be held without anyone noticing.
 **Trap: the intrusion-detection package's upgrade re-runs its own setup** and can change its configuration. After upgrading it, verify the edge still blocks end to end and that local customizations survived.
 
 **Escalating bans.** Ban length now grows with each repeat offense instead of being one fixed duration, and decision history was extended so earlier offenses are still counted. Inserting the rule had a trap of its own: the stock profile file contains a commented-out block with the same key name, and a naive search-and-insert un-commented it. The file was restored from its backup and the rule was inserted at an exact anchor. After a restart, existing bans survived and the edge bouncer reconnected within seconds.
+
+## 2026-11-19: a webmail page for the domain's mail
+
+The alias service already kept a second copy of every mail on the home server, but there was no
+way to browse it. The ask was a separate page to read that mail and answer it, and it
+had to look like a real mail client.
+
+**How it was built.** A small web app with a hand-written interface (three panes, search over the
+text of every message, keyboard shortcuts, a phone layout, a short undo window after Send) runs on
+the home server. It keeps its own index of the archive and picks up new mail within a minute.
+Access to the archive is read-only by construction: a read-only mount for the files and a
+dedicated database role limited to SELECT on what the page shows, with writes verified to be
+refused. Sending goes to the VPS relay over the tunnel and is DKIM-signed in the app, and a signed
+copy was checked against the live DNS record. The page is not published through the VPS; a request
+from the VPS side was confirmed to be blocked.
+
+**Traps.**
+- The stored `To` and `Reply-To` headers hold the alias service's reverse aliases, not real
+  addresses. Replying to them would route back through the alias service, which only accepts
+  replies from its own mailboxes. The app shows the alias the mail arrived on and recovers the
+  real reply address from the rewritten header's display name, falling back to the real sender.
+- Mail addressed to the personal mailbox itself does not take the normal outbound path: the
+  relay hands it to the hold filter, which delivers it by the mailbox's import API. A test sent
+  there proves signing and acceptance, not the outbound relay leg.
+- Mail sent to one of the domain's own aliases has its `To` rewritten by the relay's header
+  rules, which breaks a DKIM signature that covers `To`. Use an outside address for
+  deliverability tests.
+
