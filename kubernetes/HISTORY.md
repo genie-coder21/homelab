@@ -1,5 +1,20 @@
 # History
 
+## 2026-11-19 (later): the first movable app, and the descheduler
+
+One small service was moved from Compose to the cluster as the pattern for the rest: image pinned to the
+version that was running, its state moved into the shared PostgreSQL (row counts compared), the old address kept through a new entry point on the proxy, and
+the old container removed with its compose file parked for rollback.
+
+Then the point of the exercise: the app was moved to the second node and back by hand. Both moves took
+well under a minute, the address never changed, and from the second node everything
+the app depends on was reachable.
+
+What broke: the first move left the container unable to start on the second node, because the volume
+asked for mount propagation that a WSL2 node cannot give. Removed through git; the next move worked. The data migration also needed a scratch copy of the old data and not a read-only one.
+
+The descheduler went in the same day, deployed from the manifests repository, reading real usage.
+
 ## 2026-11-19: the platform layer (management UI, entry point, GitOps, database, NFS)
 
 The owner decided to move more of the server's services to the cluster, wanted Rancher as the management

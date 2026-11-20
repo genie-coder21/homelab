@@ -82,6 +82,19 @@ not belong on a network filesystem.
 the host firewall rules that protect everything else apply to it unchanged. The cost is that the proxy is
 pinned to one node, which is fine here: so is the data.
 
+**How a movable app is put together.** One replica with a recreate strategy, so two copies never run at
+once. Its volumes are host paths that exist under the same names on both nodes: real disks on the server,
+the NFS exports mounted at the same paths on the second node, so one manifest fits either node and the
+server keeps native disk speed. An init container checks for a marker file in each volume and refuses to
+start the app on an empty mountpoint. Short tolerations for an unreachable node bring the app back on the
+server about a minute after the second node disappears. Moving one by hand is a cordon, a rollout restart,
+and an uncordon; the service address does not change.
+
+**Rebalancing.** The descheduler runs every few minutes on real usage from metrics-server. When one node is
+above its CPU or memory target and the other is well below, it evicts a single labelled pod from the busy
+node; priority classes decide which apps go first, and a minimum pod age stops anything from bouncing
+back and forth. Pods without the label are never touched.
+
 ### Traps
 
 - **A NetworkPolicy lags a brand-new pod.** The policy controller adds a new pod's address to the allow-set
@@ -95,6 +108,12 @@ pinned to one node, which is fine here: so is the data.
 - **The management UI's first minutes look worse than they are.** Its GitOps component is installed by
   helper pods; the first attempts can fail on a hook that races the custom resource definitions, and the
   retry succeeds on its own.
+- **Mount propagation and WSL2.** A volume that asks for host-to-container mount propagation will not
+  start on the WSL2 node, because its mounts are private. The marker-file check does the job instead.
+- **Converting an embedded database.** The loader needs a writable copy of a database file that is in
+  write-ahead-log mode; a read-only mount of the original fails to open.
+- **Leave nothing half-migrated on the Compose side.** A helper that restarts stopped containers after
+  backups will happily restart the old copy; remove the old container and park its compose file.
 - **Drift correction is real.** An object changed by hand during debugging was put back within half a
   minute. Debug with that in mind.
 
