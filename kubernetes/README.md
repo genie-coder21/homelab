@@ -10,7 +10,7 @@ Docker Compose deployment** of the same app.
 
 | Piece | Where | Notes |
 |---|---|---|
-| k3s server (control plane) | server, native k3s | Traefik and the service load balancer disabled (nothing is ingressed; remote-display sidecars use hostPorts), Secrets encryption at rest on, flannel vxlan over the LAN |
+| k3s server (control plane) | server, native k3s | bundled Traefik and service load balancer disabled (remote-display sidecars use hostPorts), Secrets encryption at rest on, flannel vxlan over the LAN |
 | Database, queue, UI | **still Docker Compose on the server** for now | pods reach them through a small haproxy container that publishes the two ports on the LAN behind a **source allow-list**; the database and queue containers themselves were not touched |
 | Worker pods | one Helm release per node, one StatefulSet per worker | pod = app container + display sidecar sharing an X socket; per-worker local volume for browser profiles; shared folders by hostPath on the server and NFS from the other node |
 | Gaming-pc node | WSL2 Ubuntu as a k3s **agent** (owner's choice over a Hyper-V VM) | mirrored networking so the distro shares the host's LAN address; systemd on; joined to the server through a **dedicated WireGuard tunnel** (userspace on the WSL side, which initiates), because mirrored mode delivers inbound traffic only to real Linux sockets, never to the overlay's kernel socket or to iptables hostPorts |
@@ -55,6 +55,48 @@ ahead of nat), clears only that bit, and only for packets not headed to the pod 
 been decided at that point, so nothing that routes on the mark is affected, and Docker containers on the
 same host keep seeing the original client address. Rule changes are applied atomically, without
 restarting any unit. Checked with a health snapshot before and after (identical).
+
+## The platform layer: management UI, entry point, GitOps, shared database, storage
+
+Added once the first workloads were stable, as the base for moving the remaining Compose services over.
+
+| Piece | Choice | Why |
+|---|---|---|
+| Management UI | Rancher, installed with Helm, single replica on the server | the UI used in a lot of real environments; worth learning on a cluster that matters |
+| Terminal UI | k9s (release binary, checksum verified) | fast day-to-day view of pods, logs and events |
+| Entry point | Traefik on the server's host network, one entry point per service port | the host firewall keeps deciding who reaches each port; a service keeps its address wherever its pod runs |
+| TLS | cert-manager with a private CA (self-signed root, CA issuer) | certificates for in-house names and addresses, renewed automatically |
+| GitOps | a private repository of manifests, deployed by Rancher Fleet, drift correction on | the cluster is changed by changing a file; a hand edit is put back |
+| Updates | pinned image versions, Renovate opening pull requests | every update is a reviewed commit and a revert away from the old version |
+| Shared database | one PostgreSQL StatefulSet on the server's local disk, reachable only from labelled namespaces (NetworkPolicy), nightly dump into the existing backup | apps that support PostgreSQL keep their state there, so the app pod itself holds nothing that must stay on one node |
+| Shared files | two NFS exports from the server to the second node, carried inside the node tunnel | config folders and the data drive look the same from either node |
+| Boot order | k3s waits for the data drive's mount unit | pods never start against an empty mountpoint |
+
+**Movable apps.** The server stays the control plane and the home of all data. An app whose database is in
+PostgreSQL and whose files are on NFS can run on either node: it can be moved by hand, rebalanced by a
+descheduler when one node is under load, and it restarts on the server if the second node goes away. Apps
+that only support an embedded file database stay pinned to the server, because that kind of database does
+not belong on a network filesystem.
+
+**Why Traefik sits on the host network.** A proxy on the host network is an ordinary listening socket, so
+the host firewall rules that protect everything else apply to it unchanged. The cost is that the proxy is
+pinned to one node, which is fine here: so is the data.
+
+### Traps
+
+- **A NetworkPolicy lags a brand-new pod.** The policy controller adds a new pod's address to the allow-set
+  a moment after the pod starts. A short job that connects to the database in its first second is refused.
+  The backup job now waits for the database to answer before dumping; any short-lived client must retry.
+- **Chart defaults that collide on a host network.** A proxy on the host network binds its internal ports
+  on the host too. The health and metrics entry points were moved or switched off where they clashed with
+  ports already in use.
+- **Rendering a chart offline can fail a version check the real install passes.** The Helm client assumes
+  its own Kubernetes version when templating; pass the cluster's version explicitly.
+- **The management UI's first minutes look worse than they are.** Its GitOps component is installed by
+  helper pods; the first attempts can fail on a hook that races the custom resource definitions, and the
+  retry succeeds on its own.
+- **Drift correction is real.** An object changed by hand during debugging was put back within half a
+  minute. Debug with that in mind.
 
 ## Deploying
 

@@ -1,5 +1,29 @@
 # History
 
+## 2026-11-19: the platform layer (management UI, entry point, GitOps, database, NFS)
+
+The owner decided to move more of the server's services to the cluster, wanted Rancher as the management
+UI, and wanted apps to be able to run on either node. That needs a base first.
+
+Built in one sitting, with a health snapshot before and after (identical apart from the new pods):
+
+1. cert-manager and a private CA; Traefik on the server's host network as the single entry point;
+   Rancher behind it; k9s for the terminal.
+2. A private manifests repository, a read-only deploy key held in the TPM-bound secret store, and a Fleet
+   GitRepo pointing at it. First bundle: the namespaces. Renovate configuration added.
+3. A shared PostgreSQL deployed through that pipeline (so the pipeline was proven by something real),
+   a NetworkPolicy in front of it, and a nightly dump job. Two NFS exports to the second node through the
+   node tunnel. A systemd drop-in so k3s waits for the data drive.
+
+What broke: the first dump job was refused by the database. The policy was correct (a pod in an unlisted
+namespace was refused, as intended), but a pod is outside the allow-set for its first seconds; the job
+connected immediately. Fixed with a wait loop, pushed through git, and the fix arrived by itself. While
+testing, a hand edit to a deployed object showed drift correction working: it was put back in about thirty
+seconds.
+
+Measured from a pod on the second node: file operations on the shared drive behave as on a local disk,
+and throughput through the tunnel is well above what the workloads need.
+
 ## 2026-11-11: the cluster goes live next to Compose
 
 The owner asked for the k3s migration to start while the app kept running, with the server as the main
