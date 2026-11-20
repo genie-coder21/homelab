@@ -49,6 +49,7 @@ Nightly, encrypted, incremental file-level backups of the always-on Ubuntu **ser
 - **Encrypted before it leaves the server.** The Windows side only ever sees opaque blobs, so anyone who can read that share still can't read the backup.
 - **TPM-bound secrets.** The SMB credentials and the repository password are `systemd-creds` blobs sealed to the server's TPM and delivered to the job through `LoadCredentialEncrypted=`. They are useless if copied to another machine and never appear on a command line or in a plain file.
 - **Quiesce the containers.** A graceful stop makes each app close its SQLite databases properly. On an incremental run the downtime is brief. A restore test confirmed it: restored databases passed `integrity_check` with full table counts, and restored config files matched by checksum.
+- **Quiesce the cluster apps too.** Apps that moved from Compose into the Kubernetes cluster are paused the same way: the GitOps controller is paused (otherwise it scales them straight back up), every Deployment in the app namespaces is scaled to zero, a fresh database dump is taken once nothing writes, and after the backup everything is scaled back and the controller resumed. If the cluster can't be reached, the backup carries on and says so in its log. The same resume runs as a stop hook of the service, so a job killed mid-backup still brings the apps back.
 - **Wait until services are idle.** Before stopping anything, the job asks whether anyone is actively using a service. If so, it checks again every 5 minutes. After 6 hours it backs up anyway, because a missed backup is worse than a 40-second blip. That case is recorded in the status file. If the idle check itself can't run, the job treats the services as idle.
 - **Wake the target instead of keeping it awake.** The gaming-pc sleeps when idle. Rather than change its power plan, the job sends a wake-on-LAN magic packet, waits a minute and retries the mount. It keeps retrying for a generous window. In practice the PC wakes in under 10 seconds.
 - **Notify after the run, not during it.** The push-notification server is itself one of the applications the backup quiesces, so messages are queued and sent once everything is back up and the server reports healthy. Failures and retention problems go to a high-priority topic. A separate watchdog alerts if the last good backup is more than 30 hours old. Status is also written to a machine-readable JSON file.
@@ -90,6 +91,7 @@ These are the useful part. Each one cost real debugging time.
 | `scripts/server/hl-restic` | runs any restic command with TPM-sealed credentials |
 | `scripts/server/hl-backup-browse` | hand-run browse mount (stop it when done) |
 | `scripts/server/hl-containers-start` | safety net that starts any stopped stack |
+| `scripts/server/hl-cluster-apps` | pauses and resumes the apps that run in the Kubernetes cluster around the backup |
 | `scripts/server/hl-git-backup` | off-site GitHub copy with pre-push scans |
 | `scripts/systemd/` | units, timers, and the Docker drop-in |
 | `scripts/windows/` | gaming-pc restic job and exclude list (draft) |

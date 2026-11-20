@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Pause / resume the apps that run in the Kubernetes cluster, for a consistent nightly backup.
+
+  hl-cluster-apps stop     pause the GitOps controller, scale every Deployment in the app
+                           namespaces to 0, wait until the pods are gone, then take a fresh
+                           database dump
+  hl-cluster-apps start    scale them back to what they were, resume the GitOps controller
+  hl-cluster-apps status   what is recorded / running
+
+A container stop no longer reaches apps that moved into the cluster. Their files live on the
+server's disk, their databases in the shared PostgreSQL, which is dumped to a folder the
+backup includes.
+
+Why the GitOps controller is paused: its drift correction puts a manually scaled Deployment
+back within seconds. Resuming it is also the safety net: if `start` only manages to resume
+it, the controller restores every Deployment to the replica count in git.
+
+Never fails the backup: every problem is reported on stdout and the exit code stays 0,
+except `start` when something could not be restored (exit 1, so it shows in the log).
+
+CONFIG: fill in the placeholders below.
+"""
+from __future__ import annotations
+import json, os, subprocess, sys, time
+from pathlib import Path
+
+NAMESPACES = ["<APP_NAMESPACE>"]             # namespaces whose Deployments are app workloads
+STATE = Path("/var/lib/hl-backup/cluster-apps.json")
+GITREPO = ("<GITOPS_NAMESPACE>", "<GITOPS_REPO_NAME>")
+DUMP_CRONJOB = ("<DB_NAMESPACE>", "<DUMP_CRONJOB>")   # reused for the fresh dump
+ENV = dict(os.environ, KUBECONFIG="<KUBECONFIG_PATH>")
+KUBECTL = "/usr/local/bin/kubectl"
+
+
+def k(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run([KUBECTL, *args], capture_output=True, text=True, env=ENV, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(args, 124, "", "timed out")
+
+
+def say(msg: str) -> None:
+    print(f"cluster-apps: {msg}", flush=True)
+
+
+def gitops_paused() -> bool | None:
+    r = k("-n", GITREPO[0], "get", "gitrepo", GITREPO[1], "-o", "jsonpath={.spec.paused}")
+    return None if r.returncode else r.stdout.strip() == "true"
+
+
+def gitops_pause(flag: bool) -> bool:
+    r = k("-n", GITREPO[0], "patch", "gitrepo", GITREPO[1], "--type", "merge",
+          "-p", json.dumps({"spec": {"paused": flag}}))
+    return r.returncode == 0
+
+
+def deployments(ns: str) -> dict[str, int]:
+    r = k("-n", ns, "get", "deploy", "-o", "json")
+    if r.returncode:
+        return {}
+    return {d["metadata"]["name"]: int(d["spec"].get("replicas", 1)) for d in json.loads(r.stdout)["items"]}
+
+
+def stop() -> int:
+    if k("get", "--raw", "/readyz", timeout=15).returncode:
+        say("cluster not reachable - nothing paused (backup continues)")
+        return 0
+    if STATE.exists():
+        say("already paused (state file exists) - leaving it as it is")
+        return 0
+    state = {"gitops_was_paused": bool(gitops_paused()), "deployments": {}}
+    for ns in NAMESPACES:
+        state["deployments"][ns] = {n: r for n, r in deployments(ns).items() if r > 0}
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(state))
+    if not gitops_pause(True):
+        say("WARNING: could not pause the GitOps controller - it will scale the apps back up; not scaling down")
+        STATE.unlink(missing_ok=True)
+        return 0
+    n = 0
+    for ns, deps in state["deployments"].items():
+        for name in deps:
+            if k("-n", ns, "scale", "deploy", name, "--replicas=0").returncode == 0:
+                n += 1
+            else:
+                say(f"WARNING: could not scale {ns}/{name}")
+        k("-n", ns, "wait", "--for=delete", "pod", "--all", "--timeout=150s", timeout=170)
+        left = k("-n", ns, "get", "pods", "--no-headers").stdout.strip().splitlines()
+        left = [l for l in left if "Completed" not in l]
+        if left:
+            say(f"WARNING: {len(left)} pod(s) still present in {ns}")
+    say(f"paused {n} deployment(s); GitOps controller paused")
+    # fresh, consistent dump of every app database, now that nothing writes
+    job = f"backup-dump-{int(time.time())}"
+    if k("-n", DUMP_CRONJOB[0], "create", "job", job, f"--from=cronjob/{DUMP_CRONJOB[1]}").returncode == 0:
+        r = k("-n", DUMP_CRONJOB[0], "wait", "--for=condition=complete", f"job/{job}", "--timeout=600s", timeout=620)
+        say("Postgres dump done" if r.returncode == 0 else "WARNING: Postgres dump did not finish (last scheduled dump is still there)")
+        k("-n", DUMP_CRONJOB[0], "delete", "job", job, "--wait=false")
+    else:
+        say("WARNING: could not start the Postgres dump job")
+    return 0
+
+
+def start() -> int:
+    if not STATE.exists():
+        say("nothing recorded as paused")
+        return 0
+    try:
+        state = json.loads(STATE.read_text())
+    except ValueError:
+        state = {"gitops_was_paused": False, "deployments": {}}
+    for _ in range(20):                       # the API can be busy right after a backup; be patient
+        if k("get", "--raw", "/readyz", timeout=15).returncode == 0:
+            break
+        time.sleep(15)
+    bad = 0
+    for ns, deps in state.get("deployments", {}).items():
+        for name, replicas in deps.items():
+            if k("-n", ns, "scale", "deploy", name, f"--replicas={replicas}").returncode:
+                bad += 1
+                say(f"WARNING: could not scale {ns}/{name} back to {replicas}")
+    if not state.get("gitops_was_paused"):
+        if not gitops_pause(False):
+            bad += 1
+            say("WARNING: could not resume the GitOps controller")
+    if bad == 0:
+        STATE.unlink(missing_ok=True)
+        say("apps resumed; GitOps controller resumed")
+        return 0
+    say(f"{bad} thing(s) not restored - state file kept, run `hl-cluster-apps start` again")
+    return 1
+
+
+def status() -> int:
+    say(f"state file: {STATE.read_text() if STATE.exists() else 'none (nothing paused)'}")
+    say(f"GitOps controller paused: {gitops_paused()}")
+    for ns in NAMESPACES:
+        say(f"{ns}: {deployments(ns)}")
+    return 0
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    sys.exit({"stop": stop, "start": start, "status": status}.get(cmd, lambda: (print(__doc__), 2)[1])())

@@ -152,3 +152,17 @@ The next night exposed a second-order problem. The saved copy was stale, because
 ## Where it stands
 
 The server backs itself up every night, unattended, to an encrypted repository on a machine that is asleep when the run starts. The run waits until services are idle, quiesces applications only briefly, prunes reliably, cleans up after itself, and reports every outcome to a phone. The docs and the code project have an off-site copy that refuses to push anything secret or personal. Docker can no longer start against a missing data disk. The gaming-pc's own backup is drafted and tested but its final form, file-level restic versus images, is still being decided.
+
+## 2026-11-20: the backup learns about the cluster
+
+Several services had moved from Compose into the Kubernetes cluster, so the nightly job was extended to quiesce those apps too and to take a database dump at the same moment as the file copy.
+
+The job now calls a small helper before and after the copy. Before: it records each Deployment's replica count, pauses the GitOps controller, scales the app Deployments to zero, waits for the pods to go, and runs a fresh database dump from the existing dump job. After: it scales everything back and resumes the controller.
+
+What we learned while testing:
+
+- **The GitOps controller undoes a manual scale within seconds.** A first test without pausing it saw the app back almost at once. Pausing the controller for the length of the backup fixes that, and resuming it doubles as the safety net, because it restores whatever git says.
+- **The pause must never fail the backup.** If the cluster is unreachable, the helper says so and the backup continues with what it can copy.
+- **A crash needs the same resume.** The helper's resume is also a stop hook of the service, and it does nothing when no pause is recorded.
+
+Tested for real before the first night: every app paused, stayed paused, a dump was written, and everything came back and answered. One app needs over a minute to close its database, so the pause adds a few minutes to the night's downtime.

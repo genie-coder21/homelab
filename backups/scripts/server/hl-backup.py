@@ -40,6 +40,7 @@ POLL = timedelta(minutes=5)
 
 STACK_ROOT = Path("/opt")                      # one <stack>/compose.yaml per service
 NEVER_STOP: set[str] = set()                   # stacks deliberately kept stopped
+CLUSTER_APPS = "/usr/local/sbin/hl-cluster-apps"  # pauses/resumes the apps that run in the cluster
 
 RETENTION = ["--keep-daily", "30", "--keep-weekly", "8", "--keep-monthly", "12"]
 EXCLUDES = ["/proc", "/sys", "/dev", "/run", "/tmp", "/mnt", "/media", "/snap",
@@ -141,9 +142,21 @@ def stop_all() -> None:
             continue
         _STOPPED.extend(ids)
     log(f"stopped {len(_STOPPED)} container(s)")
+    cluster_apps("stop")
+
+
+def cluster_apps(action: str) -> None:
+    """Pause or resume the apps that run in the cluster. Never raises: a cluster problem must not stop the backup."""
+    try:
+        r = run([CLUSTER_APPS, action], timeout=1200)
+        for line in (r.stdout + r.stderr).strip().splitlines():
+            log(line)
+    except Exception as exc:  # noqa: BLE001
+        log(f"WARNING: {CLUSTER_APPS} {action} failed: {exc}")
 
 
 def start_all() -> None:
+    cluster_apps("start")           # no-op when nothing is recorded as paused
     ids = list(_STOPPED)
     if not ids:
         # Crash path: state unknown, so bring every stack up.

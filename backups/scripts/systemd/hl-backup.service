@@ -8,6 +8,7 @@ Type=oneshot
 ExecStart=/usr/local/sbin/hl-backup.py
 # If systemd kills the job mid-run, containers must not be left stopped.
 ExecStopPost=/usr/local/sbin/hl-containers-start
+ExecStopPost=/usr/local/sbin/hl-cluster-apps start
 LoadCredentialEncrypted=smbcred:/etc/credstore.encrypted/<SMB_CRED_NAME>
 LoadCredentialEncrypted=resticpw:/etc/credstore.encrypted/<RESTIC_CRED_NAME>
 TimeoutStartSec=9h
