@@ -1,5 +1,23 @@
 # History
 
+## 2026-11-20: the GPU worker goes into use, with an automatic fallback
+
+The worker from the entry below is now used for real. A job is prepared for one machine or the other,
+so one setting decides where new jobs go, and a small service on the server keeps that setting right:
+it checks the worker regularly. Several good answers in a row send new jobs to the gaming-pc; a single
+bad answer (PC busy, off, or the pod gone) sends them back to the server at once. Work already in
+progress is not interrupted.
+
+Tested with real jobs in both directions, including a forced "busy" while idle: the fallback and the
+return both happened promptly.
+
+What broke: one kind of job depended on files only the server could see. They now live on storage both
+sides share. Lesson: a remote worker needs the same view of the data as the machine that sends the
+work.
+
+Also changed: the worker's handling of incoming jobs was tightened, and stopping a job on the server
+now stops it on the worker too.
+
 ## 2026-11-20: a GPU worker pod on the gaming-pc's node
 
 The gaming-pc's graphics card is far faster than the server for some work and is often free, so the
