@@ -21,6 +21,10 @@ connected immediately. Fixed with a wait loop, pushed through git, and the fix a
 testing, a hand edit to a deployed object showed drift correction working: it was put back in about thirty
 seconds.
 
+Later the same day the owner chose to run Renovate self-hosted instead of using a hosted service: a
+scheduled job in its own namespace, non-root with a read-only root filesystem, with access limited to the
+single repository it maintains, and outside the set of namespaces allowed to reach the database.
+
 Measured from a pod on the second node: file operations on the shared drive behave as on a local disk,
 and throughput through the tunnel is well above what the workloads need.
 

@@ -67,7 +67,7 @@ Added once the first workloads were stable, as the base for moving the remaining
 | Entry point | Traefik on the server's host network, one entry point per service port | the host firewall keeps deciding who reaches each port; a service keeps its address wherever its pod runs |
 | TLS | cert-manager with a private CA (self-signed root, CA issuer) | certificates for in-house names and addresses, renewed automatically |
 | GitOps | a private repository of manifests, deployed by Rancher Fleet, drift correction on | the cluster is changed by changing a file; a hand edit is put back |
-| Updates | pinned image versions, Renovate opening pull requests | every update is a reviewed commit and a revert away from the old version |
+| Updates | pinned image versions; Renovate, self-hosted as a scheduled job in the cluster, opens pull requests | every update is a reviewed commit and a revert away from the old version; no third-party service is given access to the manifests repository |
 | Shared database | one PostgreSQL StatefulSet on the server's local disk, reachable only from labelled namespaces (NetworkPolicy), nightly dump into the existing backup | apps that support PostgreSQL keep their state there, so the app pod itself holds nothing that must stay on one node |
 | Shared files | two NFS exports from the server to the second node, carried inside the node tunnel | config folders and the data drive look the same from either node |
 | Boot order | k3s waits for the data drive's mount unit | pods never start against an empty mountpoint |
