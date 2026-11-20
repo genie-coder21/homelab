@@ -97,6 +97,17 @@ back and forth. Pods without the label are never touched.
 
 ### Traps
 
+- **An HTTP route changes what an app sees of its clients.** A proxy adds forwarding headers, and apps
+  that make decisions from the client address behave differently behind it. Test the app's own access
+  rules through the new route before switching.
+- **Hand-written EndpointSlices need explicit endpoint conditions.** Otherwise the API server adds an
+  empty value, the GitOps controller sees drift, and the bundle is redeployed forever. Check that every
+  bundle settles after a change.
+- **A pod's source address depends on the node it runs on.** Test address-based rules from every node
+  the app may run on.
+- **Rehearse a data conversion on an isolated copy.** Give the copy no outbound network and read-only
+  data, so a rehearsal can never change anything real.
+
 - **A NetworkPolicy lags a brand-new pod.** The policy controller adds a new pod's address to the allow-set
   a moment after the pod starts. A short job that connects to the database in its first second is refused.
   The backup job now waits for the database to answer before dumping; any short-lived client must retry.

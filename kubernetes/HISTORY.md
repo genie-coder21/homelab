@@ -1,5 +1,19 @@
 # History
 
+## 2026-11-19 (later still): a second app moved, with a rehearsal first
+
+A second, larger app was moved to the cluster and its state moved into the shared PostgreSQL. The
+conversion was rehearsed first on an isolated copy in its own namespace, compared with the running app,
+and removed. The real move followed the same steps, with data compared before and after. Downtime was a
+few minutes.
+
+Services on both sides keep reaching each other under their existing names while the move is in
+progress. No setting in any app had to change.
+
+What broke: a hand-written EndpointSlice without explicit endpoint conditions made the GitOps controller
+redeploy its bundle in a loop, because the API server fills in an empty value that then counts as drift.
+Fixed through git.
+
 ## 2026-11-19 (later): the first movable app, and the descheduler
 
 One small service was moved from Compose to the cluster as the pattern for the rest: image pinned to the
