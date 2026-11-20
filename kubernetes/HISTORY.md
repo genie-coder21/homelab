@@ -1,5 +1,27 @@
 # History
 
+## 2026-11-20: a GPU worker pod on the gaming-pc's node
+
+The gaming-pc's graphics card is far faster than the server for some work and is often free, so the
+cluster got a worker pod that can use it for GPU jobs sent from the server.
+
+How it is put together:
+
+- The gaming-pc reports whether it is busy. The worker checks before every job and refuses unless the
+  PC is clearly free. The people at the PC always win.
+- A pod on the gaming-pc's node is given access to the card.
+- The worker accepts jobs only from the server, over an authenticated channel limited to the one task
+  it exists for. It runs as an ordinary user on a read-only filesystem and is not reachable from
+  outside the cluster.
+
+Tested before anything depends on it: the card is visible in the pod, a real job finishes much faster
+than on the server, anything outside the worker's one task is refused, and a busy, stale or missing
+status is refused.
+
+What broke on the first start: a file-copy step in the image build gave a new directory the file's
+mode, so the worker could not read its own configuration; and a stored credential came back without
+its final line break, the same trap already noted in backups. Both fixed.
+
 ## 2026-11-19 (later still): a second app moved, with a rehearsal first
 
 A second, larger app was moved to the cluster and its state moved into the shared PostgreSQL. The

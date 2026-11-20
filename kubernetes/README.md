@@ -97,6 +97,12 @@ back and forth. Pods without the label are never touched.
 
 ### Traps
 
+- **A memory limit without a request reserves the whole limit.** On a node whose memory is already
+  reserved on paper, such a pod never schedules, however idle the node really is. Give small pods an
+  explicit small request.
+- **Copying a file into a new directory with a file mode sets that mode on the directory too.** Create
+  the directory first, or a non-root process cannot enter it.
+
 - **An HTTP route changes what an app sees of its clients.** A proxy adds forwarding headers, and apps
   that make decisions from the client address behave differently behind it. Test the app's own access
   rules through the new route before switching.
