@@ -87,7 +87,8 @@ once. Its volumes are host paths that exist under the same names on both nodes: 
 the NFS exports mounted at the same paths on the second node, so one manifest fits either node and the
 server keeps native disk speed. An init container checks for a marker file in each volume and refuses to
 start the app on an empty mountpoint. Short tolerations for an unreachable node bring the app back on the
-server about a minute after the second node disappears. Moving one by hand is a cordon, a rollout restart,
+server about a minute after the second node disappears, and a small DaemonSet keeps every movable app's
+image on both nodes so a move never waits for a download. Moving one by hand is a cordon, a rollout restart,
 and an uncordon; the service address does not change.
 
 **Rebalancing.** The descheduler runs every few minutes on real usage from metrics-server. When one node is

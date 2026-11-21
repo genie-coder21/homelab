@@ -192,3 +192,28 @@ Added a second chain to the existing nftables table so the CNI port-mapping plug
 only to pod traffic, and Docker containers on the same host keep seeing the original client address. It
 was loaded in one atomic transaction without touching the k3s unit. A health snapshot before and after
 was identical, and the file-integrity baseline was refreshed.
+
+## 2026-11-21: no nightly pause, faster recovery, images on both nodes
+
+The owner asked whether the single-copy apps in the cluster could run as several copies behind a load
+balancer. They cannot: these are single-instance applications by design. So the goal became the next best thing:
+remove the planned downtime, and make the unplanned kind as short as a restart allows.
+
+The planned downtime was the nightly backup, which scaled the apps to zero for a consistent copy. It now
+takes consistent copies while they run. The shared database server is dumped with its own tool, which
+reads each database as of one moment. Apps with embedded databases are copied with a method that is safe
+while they run, and each copy is checked before it replaces the previous one. Each step stands alone; if
+one fails, the problem is logged, the last good copy is kept and the rest of the backup carries on. The
+old pause is kept as a manual fallback.
+
+For the unplanned kind, each app's pod was deleted once and timed first. Most were ready again in about
+six seconds, so the settings around the restart were tightened instead: pods leave a lost node sooner,
+a hung app is caught in thirty seconds instead of two minutes, and readiness is checked more often. A small
+DaemonSet now starts every movable app's image once on each node with a no-op command, so a pod that moves
+never waits for a download.
+
+Verified: a real run of the new backup step with the apps probed throughout and every probe answered; the
+database dump restored into a throwaway, network-less container with the same tables as the live databases
+and row counts equal or a row or two behind, which is the writing that happened after the dump; an embedded
+database copy matching its source. Lesson: the pre-pull DaemonSet needs the same registry
+pull secret as the apps it mirrors, or it sits waiting on the images from the private registry.

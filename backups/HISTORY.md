@@ -166,3 +166,11 @@ What we learned while testing:
 - **A crash needs the same resume.** The helper's resume is also a stop hook of the service, and it does nothing when no pause is recorded.
 
 Tested for real before the first night: every app paused, stayed paused, a dump was written, and everything came back and answered. One app needs over a minute to close its database, so the pause adds a few minutes to the night's downtime.
+
+## 2026-11-21: cluster apps are no longer paused for the backup
+
+The nightly job used to scale the cluster's apps to zero before copying their data. It now asks for
+consistent database copies while they keep running (details in the kubernetes history), and it does that
+first, which also shortens the rest of the night's job. Restores take the
+databases from the snapshot copies and everything else from the ordinary files. A test restore of the
+database dump lined up with the live data.
