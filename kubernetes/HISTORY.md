@@ -217,3 +217,10 @@ database dump restored into a throwaway, network-less container with the same ta
 and row counts equal or a row or two behind, which is the writing that happened after the dump; an embedded
 database copy matching its source. Lesson: the pre-pull DaemonSet needs the same registry
 pull secret as the apps it mirrors, or it sits waiting on the images from the private registry.
+
+Later the same day the owner asked that the snapshots send only what changed, like the rest of the backup.
+They already travel inside the nightly backup, which uploads only data it has not seen. Two of them
+defeated that by being compressed archives, which look entirely new every night. One is now stored
+unpacked, and the database dump is compressed in a way that keeps unchanged parts byte-identical. In a
+throwaway repository the unpacked copy added nothing on top of data the backup already holds, and a
+second dump taken minutes after the first added about a third of its size instead of all of it.
